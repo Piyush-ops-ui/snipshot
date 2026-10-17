@@ -513,15 +513,15 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-lg mt-2 text-left">
             <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs">
-              <span className="font-semibold text-slate-800 block">1. Trim &amp; Code</span>
+              <span className="font-semibold text-slate-800 block">Code Spotlight &amp; Trim</span>
               <span className="text-[11px] text-slate-500">Sentence-aligned cuts &amp; burned code cards</span>
             </div>
             <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs">
-              <span className="font-semibold text-slate-800 block">2. Screen Grounding</span>
+              <span className="font-semibold text-slate-800 block">Screen Grounding</span>
               <span className="text-[11px] text-slate-500">Phonetic misspellings fixed via OCR</span>
             </div>
             <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs">
-              <span className="font-semibold text-slate-800 block">3. Social Growth</span>
+              <span className="font-semibold text-slate-800 block">Social Distribution</span>
               <span className="text-[11px] text-slate-500">Hashtags, pinned comments &amp; QR code</span>
             </div>
           </div>
@@ -552,16 +552,16 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
                 </Badge>
               )}
 
-              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs px-2.5 py-0.5 font-medium flex items-center gap-1.5 shadow-2xs">
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs px-2.5 py-0.5 font-medium flex items-center gap-1.5 shadow-2xs">
                 <CheckCircle2 className="size-3 text-emerald-600" />
-                100% Complete Sentence Boundaries
+                Complete Thought
               </Badge>
             </div>
 
-            <div className="flex items-center gap-2 text-xs font-mono text-slate-500">
-              <span>Duration: <strong className="text-slate-800">{(trimEnd - trimStart).toFixed(1)}s</strong></span>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span>Duration <strong className="text-slate-800 font-mono">{(trimEnd - trimStart).toFixed(1)}s</strong></span>
               <span className="text-slate-300">•</span>
-              <span className="text-emerald-600 font-medium">100% On-Device</span>
+              <span className="text-slate-600 font-medium">Local Hardware</span>
             </div>
           </div>
 
@@ -660,16 +660,16 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
 
             {/* Right Column (7 Cols): Only 3 Clean Cards */}
             <div className="lg:col-span-7 flex flex-col gap-4">
-              {/* Card 1: 1. Trim Clip & Edit Code */}
-              <Card className="bg-white border-slate-200 shadow-xs">
+              {/* Card 1: Clip & Code Spotlight */}
+              <Card className="bg-white border-slate-200/80 shadow-xs">
                 <CardHeader className="pb-3 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                       <Scissors className="size-4 text-indigo-600" />
-                      1. Trim Clip &amp; Edit Code
+                      Clip &amp; Code Spotlight
                     </CardTitle>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Adjust timestamps, choose header accent style, and refine spotlight code.
+                      Adjust timestamps, style the header accent, and edit code syntax.
                     </p>
                   </div>
                   {rerenderNotice && (
@@ -785,13 +785,13 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
                 </CardContent>
               </Card>
 
-              {/* Card 2: 2. Technical Words Verified from Screen */}
+              {/* Card 2: Verified Technical Vocabulary */}
               <Card className="bg-white border-slate-200 shadow-xs">
                 <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                       <FileText className="size-4 text-indigo-600" />
-                      2. Technical Words Verified from Screen
+                      Verified Technical Vocabulary
                     </CardTitle>
                     <p className="text-xs text-slate-500 mt-0.5">
                       Phonetically repaired terms verified against on-screen video frames.
@@ -865,13 +865,13 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
                 </CardContent>
               </Card>
 
-              {/* Card 3: 3. Auto-Generated Caption, Hashtags & Code QR */}
+              {/* Card 3: Social Caption & Code QR */}
               <Card className="bg-white border-slate-200 shadow-xs">
                 <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                       <Hash className="size-4 text-indigo-600" />
-                      3. Auto-Generated Caption, Hashtags &amp; Code QR
+                      Social Caption &amp; Code QR
                     </CardTitle>
                     <p className="text-xs text-slate-500 mt-0.5">
                       Social growth pack: hook title, pinned code comment, 3-tier hashtags, and scannable QR badge.

@@ -238,7 +238,28 @@ class FastNativeCompositor:
         clean_snippet = sanitize_for_render(code_snippet.strip() if code_snippet else "# Implementation Spotlight\nprint('Hello SnipShot')")
         lines = clean_snippet.split("\n")[:14]
         line_y = card_y0 + 56
+
+        # Determine focal line to highlight
+        focal_idx = 1 if len(lines) > 2 else 0
+        for idx, l in enumerate(lines):
+            low_l = l.lower()
+            if any(k in low_l for k in ["new ", "class ", "def ", "add(", "return ", "println", "actionlistener", "public ", "jbutton"]):
+                focal_idx = idx
+                break
+
         for i, line in enumerate(lines):
+            # Active execution indicator for focal line
+            if i == focal_idx and len(lines) > 1:
+                draw.rounded_rectangle(
+                    [(card_x0 + 12, line_y - 2), (card_x1 - 12, line_y + 34)],
+                    radius=6,
+                    fill=(brand_rgb[0] // 5, brand_rgb[1] // 5, brand_rgb[2] // 5, 130),
+                    outline=brand_rgb + (140,),
+                    width=1,
+                )
+                # Glowing execution arrow in brand color
+                draw.text((card_x0 + 20, line_y), ">", fill=brand_rgb + (255,), font=self.code_font)
+
             # Syntax colorized tokens with line numbers on the left margin
             self._draw_simple_syntax_line(draw, line, card_x0 + 64, line_y, brand_color, line_num=i + 1)
             line_y += 38
@@ -252,20 +273,21 @@ class FastNativeCompositor:
         draw.rectangle([(0, self.FOOTER_Y0), (self.WIDTH, self.HEIGHT)], fill=(15, 23, 42, 255))
         draw.line([(0, self.FOOTER_Y0), (self.WIDTH, self.FOOTER_Y0)], fill=brand_rgb + (255,), width=2)
 
-        # Outro QR Code in bottom-right corner (BUG 3 Fix: exactly 130x130 at x=910, y=1740)
+        # Outro QR Code in bottom-right corner (Direct-to-clipboard code text)
         try:
             import qrcode
             qr = qrcode.QRCode(box_size=4, border=1)
-            qr.add_data(qr_data or "https://snipshot.studio")
+            raw_qr = clean_snippet[:350] if (clean_snippet and len(clean_snippet) > 10) else (qr_data or "https://snipshot.studio")
+            qr.add_data(raw_qr)
             qr.make(fit=True)
             qr_img = qr.make_image(fill_color="#0F172A", back_color="#FFFFFF").convert("RGBA")
             qr_img = qr_img.resize((130, 130), Image.Resampling.NEAREST)
             img.paste(qr_img, (910, 1740))
-            draw.text((918, 1712), sanitize_for_render("SCAN CODE"), fill=(255, 255, 255, 255), font=self.badge_font)
+            draw.text((880, 1712), sanitize_for_render("SCAN TO COPY CODE"), fill=(255, 255, 255, 255), font=self.badge_font)
         except Exception:
             try:
                 draw.rectangle([(910, 1740), (1040, 1870)], fill=(255, 255, 255, 255), outline=(56, 189, 248, 255), width=2)
-                draw.text((918, 1712), sanitize_for_render("SCAN CODE"), fill=(255, 255, 255, 255), font=self.badge_font)
+                draw.text((880, 1712), sanitize_for_render("SCAN TO COPY CODE"), fill=(255, 255, 255, 255), font=self.badge_font)
             except Exception:
                 pass
 
@@ -275,8 +297,8 @@ class FastNativeCompositor:
     def generate_ass_subtitles(
         self,
         words: List[Dict[str, Any]],
-        start_sec: float,
-        duration: float,
+        start_sec: Any = 0.0,
+        duration: float = 60.0,
         brand_color: str = "#4F46E5",
         output_path: Optional[str] = None,
     ) -> str:
@@ -288,6 +310,11 @@ class FastNativeCompositor:
         - Uses font DejaVu Sans with bold weight and outline
         - Strictly sanitized for render to eliminate any '□' unicode tofu
         """
+        if isinstance(start_sec, str) and not output_path:
+            output_path = start_sec
+            start_sec = 0.0
+        start_sec_val = float(start_sec or 0.0)
+
         if not output_path:
             output_path = str(CACHE_DIR / f"subs_{int(time.time() * 1000)}.ass")
 
@@ -301,15 +328,15 @@ class FastNativeCompositor:
             raw_e = float(w.get("abs_end", rel_e))
 
             # Determine relative start/end within [0, duration]
-            if start_sec > 0.0 and raw_s >= start_sec:
-                w_start = raw_s - start_sec
-                w_end = raw_e - start_sec
+            if start_sec_val > 0.0 and raw_s >= start_sec_val:
+                w_start = raw_s - start_sec_val
+                w_end = raw_e - start_sec_val
             elif 0.0 <= rel_s <= duration and rel_e > rel_s:
                 w_start = rel_s
                 w_end = rel_e
-            elif start_sec > 0.0 and rel_s >= start_sec:
-                w_start = rel_s - start_sec
-                w_end = rel_e - start_sec
+            elif start_sec_val > 0.0 and rel_s >= start_sec_val:
+                w_start = rel_s - start_sec_val
+                w_end = rel_e - start_sec_val
             else:
                 w_start = rel_s
                 w_end = rel_e
@@ -381,7 +408,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,48,&H00FFFFFF,&H00{brand_bgr},&H000F172A,&H80000000,1,0,0,0,100,100,0,0,1,3,0,2,60,60,140,1
+Style: Default,DejaVu Sans,50,&H0000D7FF,&H00FFFFFF,&H000F172A,&H80000000,1,0,0,0,100,100,0,0,1,4,0,2,60,60,150,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

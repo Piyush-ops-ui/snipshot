@@ -89,20 +89,27 @@ TabsTrigger.displayName = 'TabsTrigger';
 
 export interface TabsContentProps extends React.HTMLAttributes<HTMLDivElement> {
   value: string;
+  forceMount?: boolean;
 }
 
 export const TabsContent = React.forwardRef<HTMLDivElement, TabsContentProps>(
-  ({ className, value, children, ...props }, ref) => {
+  ({ className, value, forceMount = true, children, ...props }, ref) => {
     const context = useContext(TabsContext);
     if (!context) throw new Error('TabsContent must be used within Tabs');
 
-    if (context.value !== value) return null;
+    const isActive = context.value === value;
+
+    if (!isActive && !forceMount) return null;
 
     return (
       <div
         ref={ref}
         role="tabpanel"
-        className={cn('animate-in fade-in-50 duration-200 focus-visible:outline-none', className)}
+        hidden={!isActive}
+        className={cn(
+          isActive ? 'block animate-in fade-in-50 duration-200 focus-visible:outline-none' : 'hidden',
+          className
+        )}
         {...props}
       >
         {children}

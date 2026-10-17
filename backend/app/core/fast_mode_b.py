@@ -53,10 +53,15 @@ class FastModeBEngine:
         prompt: str,
         institute_name: str = "SNIPSHOT ACADEMY",
         brand_color: str = "#4F46E5",
+        brand_kit: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Generates 4-scene educational explainer video in < 8 seconds from prompt.
         """
+        if brand_kit:
+            institute_name = brand_kit.get("name", institute_name)
+            brand_color = brand_kit.get("primary_color", brand_color)
+
         scenes = self._compile_script(prompt)
         return self.generate_explainer_from_scenes(
             scenes=scenes,
@@ -120,21 +125,33 @@ class FastModeBEngine:
         # 1. Synthesize Audio for each scene and gather word timings
         audio_path, total_duration, scene_durations, all_words = self._synthesize_voiceover(norm_scenes, explainer_id)
 
-        # 2. Render 4 Slide PNGs with Pygments syntax highlighting
+        # 2. Render Progressive Slide PNGs with Pygments syntax highlighting & typing cursor
         slide_paths = []
         for i, sc in enumerate(norm_scenes):
             sc_dur = scene_durations[i] if i < len(scene_durations) else 8.0
-            png_path = str(CACHE_DIR / f"slide_{explainer_id}_{i+1}.png")
-            self._render_scene_slide(
-                scene_num=i + 1,
-                scene=sc,
-                institute_name=institute_name,
-                brand_color=brand_color,
-                output_path=png_path,
-            )
-            slide_paths.append((png_path, sc_dur))
+            raw_lines = [l for l in sc["code"].strip().split("\n") if l.strip()]
+            num_lines = max(1, len(raw_lines))
 
-        # 3. Generate ASS subtitles
+            # 2 to 4 progressive typing steps per scene
+            steps = min(num_lines, 4)
+            step_dur = max(0.5, round(sc_dur / max(1, steps), 2))
+
+            for st in range(1, steps + 1):
+                png_path = str(CACHE_DIR / f"slide_{explainer_id}_{i+1}_s{st}.png")
+                lines_to_show = max(1, int(round((st / steps) * num_lines)))
+                is_last = (st == steps)
+                self._render_scene_slide(
+                    scene_num=i + 1,
+                    scene=sc,
+                    institute_name=institute_name,
+                    brand_color=brand_color,
+                    output_path=png_path,
+                    lines_limit=lines_to_show,
+                    show_cursor=not is_last,
+                )
+                slide_paths.append((png_path, step_dur))
+
+        # 3. Generate ASS sweeping subtitles
         subs_path = str(CACHE_DIR / f"subs_b_{explainer_id}.ass")
         self.compositor.generate_ass_subtitles(
             words=all_words,
@@ -153,14 +170,15 @@ class FastModeBEngine:
                 f.write(f"duration {dur:.2f}\n")
             f.write(f"file '{slide_paths[-1][0]}'\n")
 
-        # Encode with ultrafast libx264 and burn subtitles
+        # Encode with ultrafast libx264 and burn subtitles via libass
+        escaped_subs = subs_path.replace(":", "\\:").replace("'", "\\'")
         cmd = [
             "ffmpeg", "-y",
             "-f", "concat",
             "-safe", "0",
             "-i", concat_txt,
             "-i", audio_path,
-            "-filter_complex", f"[0:v]subtitles='{subs_path}':force_style='Alignment=2,MarginV=180'[vout]",
+            "-filter_complex", f"[0:v]ass='{escaped_subs}'[vout]",
             "-map", "[vout]",
             "-map", "1:a",
             "-c:v", "libx264",
@@ -181,7 +199,8 @@ class FastModeBEngine:
                 "-safe", "0",
                 "-i", concat_txt,
                 "-i", audio_path,
-                "-map", "0:v",
+                "-filter_complex", f"[0:v]subtitles='{escaped_subs}'[vout]",
+                "-map", "[vout]",
                 "-map", "1:a",
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
@@ -193,7 +212,28 @@ class FastModeBEngine:
                 "-shortest",
                 output_mp4,
             ]
-            subprocess.run(cmd_fb, check=True)
+            res2 = subprocess.run(cmd_fb, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if res2.returncode != 0:
+                # Raw fallback without subtitle burning if font/filter issues
+                cmd_raw = [
+                    "ffmpeg", "-y",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", concat_txt,
+                    "-i", audio_path,
+                    "-map", "0:v",
+                    "-map", "1:a",
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-crf", "23",
+                    "-pix_fmt", "yuv420p",
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    "-movflags", "+faststart",
+                    "-shortest",
+                    output_mp4,
+                ]
+                subprocess.run(cmd_raw, check=True)
 
         elapsed = round(time.time() - t_start, 2)
         tag_seed = re.sub(r'[^a-zA-Z0-9]', '', title.split()[0]).lower() if title else "code"
@@ -314,35 +354,53 @@ class FastModeBEngine:
     def _synthesize_voiceover(
         self, scenes: List[Dict[str, Any]], explainer_id: str
     ) -> Tuple[str, float, List[float], List[Dict[str, Any]]]:
-        """Synthesizes speech audio using edge-tts or generates deterministic PCM audio."""
+        """
+        Synthesizes high-fidelity speech audio via isolated subprocess Edge-TTS
+        with automatic offline pyttsx3 fallback (zero event-loop interference).
+        """
         full_text = " ".join([s["narration"] for s in scenes])
         wav_path = str(CACHE_DIR / f"audio_b_{explainer_id}.wav")
 
         durations: List[float] = []
         all_words: List[Dict[str, Any]] = []
 
-        # Attempt edge-tts
         audio_created = False
-        if EDGE_TTS_AVAILABLE:
-            try:
-                mp3_path = str(CACHE_DIR / f"temp_{explainer_id}.mp3")
-                async def _tts():
-                    communicate = edge_tts.Communicate(full_text, "en-US-ChristopherNeural")
-                    await communicate.save(mp3_path)
-                asyncio.run(_tts())
+        mp3_path = str(CACHE_DIR / f"temp_{explainer_id}.mp3")
 
-                if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 1000:
-                    # Convert to 16kHz WAV
-                    subprocess.run(
-                        ["ffmpeg", "-y", "-i", mp3_path, "-ar", "16000", "-ac", "1", wav_path],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
-                    )
+        # 1. Primary: High-Quality Neural Voice via isolated subprocess CLI
+        try:
+            cmd = [
+                sys.executable, "-m", "edge_tts",
+                "--voice", "en-US-ChristopherNeural",
+                "--text", full_text,
+                "--write-media", mp3_path,
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25)
+            if res.returncode == 0 and os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 1000:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", mp3_path, "-ar", "16000", "-ac", "1", wav_path],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
+                )
+                if os.path.exists(wav_path) and os.path.getsize(wav_path) > 2000:
+                    audio_created = True
+        except Exception:
+            pass
+
+        # 2. Offline Fallback: pyttsx3 Local Speech Synthesis
+        if not audio_created:
+            try:
+                import pyttsx3
+                engine = pyttsx3.init()
+                engine.setProperty('rate', 160)
+                engine.save_to_file(full_text, wav_path)
+                engine.runAndWait()
+                if os.path.exists(wav_path) and os.path.getsize(wav_path) > 2000:
                     audio_created = True
             except Exception:
                 pass
 
-        if not audio_created:
-            # Synthesize clean sine-voice fallback via ffmpeg
+        # 3. Emergency fallback: generate tone if system audio drivers completely missing
+        if not audio_created or not os.path.exists(wav_path) or os.path.getsize(wav_path) < 1000:
             total_est = sum(max(6.0, len(s["narration"].split()) * 0.42) for s in scenes)
             subprocess.run(
                 [
@@ -391,8 +449,13 @@ class FastModeBEngine:
         institute_name: str,
         brand_color: str,
         output_path: str,
+        lines_limit: Optional[int] = None,
+        show_cursor: bool = False,
     ):
-        """Renders ONE single 1080x1920 slide image with Pygments syntax highlighting."""
+        """
+        Renders a 1080x1920 slide image with Pygments syntax highlighting,
+        progressive line reveal, typing cursor indicator, and direct-to-clipboard QR code.
+        """
         img = Image.new("RGBA", (self.WIDTH, self.HEIGHT), (15, 23, 42, 255)) # Deep slate background #0F172A
         draw = ImageDraw.Draw(img)
 
@@ -406,7 +469,7 @@ class FastModeBEngine:
         draw.rounded_rectangle([(36, 40), (106, 116)], radius=12, fill=(30, 41, 59, 255), outline=brand_rgb + (255,), width=2)
         draw.text((50, 56), ">_", fill=brand_rgb + (255,), font=self.title_font)
 
-        # Institute Name
+        # Institute Name & Scene subtitle
         draw.text((124, 48), institute_name.upper(), fill=(255, 255, 255, 255), font=self.title_font)
         draw.text((126, 94), f"MODE B EXPLAINER • SCENE {scene_num} OF 4", fill=(148, 163, 184, 255), font=self.badge_font)
 
@@ -428,27 +491,47 @@ class FastModeBEngine:
         draw.ellipse([(c_x0 + 68, c_y0 + 16), (c_x0 + 82, c_y0 + 30)], fill=(166, 227, 161, 255))
         draw.text((c_x0 + 104, c_y0 + 14), f"concept_beat_{scene_num}.{scene.get('language', 'py')}", fill=(148, 163, 184, 255), font=self.badge_font)
 
-        # Code lines
-        code_lines = scene["code"].strip().split("\n")[:18]
+        # Code lines with progressive reveal & typing cursor
+        all_code_lines = scene["code"].strip().split("\n")[:18]
+        visible_lines = all_code_lines[:lines_limit] if lines_limit is not None else all_code_lines
+
         line_y = c_y0 + 72
-        for line_idx, line in enumerate(code_lines):
+        for line_idx, line in enumerate(visible_lines):
+            is_active_typing_line = (line_idx == len(visible_lines) - 1)
+
+            # Subtle active line highlight
+            if is_active_typing_line and show_cursor:
+                draw.rounded_rectangle(
+                    [(c_x0 + 14, line_y - 2), (c_x1 - 14, line_y + 36)],
+                    radius=6,
+                    fill=(brand_rgb[0] // 4, brand_rgb[1] // 4, brand_rgb[2] // 4, 120),
+                    outline=brand_rgb + (140,),
+                    width=1,
+                )
+
             draw.text((c_x0 + 20, line_y), f"{line_idx+1:2d}", fill=(100, 116, 139, 255), font=self.code_font)
-            self.compositor._draw_simple_syntax_line(draw, line, c_x0 + 72, line_y, brand_color)
+
+            line_to_draw = line
+            if is_active_typing_line and show_cursor:
+                line_to_draw += " ▌"
+
+            self.compositor._draw_simple_syntax_line(draw, line_to_draw, c_x0 + 72, line_y, brand_color)
             line_y += 42
 
-        # 4. Bottom Footer & QR code (1480..1920)
+        # 4. Bottom Footer & Direct Code Copy QR code (1480..1920)
         draw.rectangle([(0, 1500), (self.WIDTH, self.HEIGHT)], fill=(15, 23, 42, 255))
         draw.line([(0, 1500), (self.WIDTH, 1500)], fill=brand_rgb + (255,), width=2)
 
-        # Scannable QR Code
+        # Scannable Direct-Copy QR Code
         try:
+            raw_code_for_qr = scene["code"][:350]
             qr = qrcode.QRCode(box_size=4, border=1)
-            qr.add_data(scene["code"][:200])
+            qr.add_data(raw_code_for_qr)
             qr.make(fit=True)
             qr_img = qr.make_image(fill_color="#0F172A", back_color="#FFFFFF").convert("RGBA")
             qw, qh = qr_img.size
             img.paste(qr_img, (self.WIDTH - qw - 48, self.HEIGHT - qh - 48))
-            draw.text((self.WIDTH - qw - 48, self.HEIGHT - qh - 78), "SCAN FOR SNIPPET", fill=(148, 163, 184, 255), font=self.badge_font)
+            draw.text((self.WIDTH - qw - 48, self.HEIGHT - qh - 78), "SCAN TO COPY CODE", fill=(255, 255, 255, 255), font=self.badge_font)
         except Exception:
             pass
 
