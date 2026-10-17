@@ -292,18 +292,47 @@ class FastModeAEngine:
         self.compositor = FastNativeCompositor()
         self.latest_scan_tokens: List[str] = []
 
-    def _scan_best_window(self, video_path: str, total_duration: float) -> Tuple[float, float]:
+    def _scan_candidate_windows(self, video_path: str, total_duration: float) -> List[Dict[str, Any]]:
         """
-        Smart multi-point OCR-based window scanner for long videos.
-        Probes 14 evenly-spaced frames across the full video, runs RapidOCR on each,
+        Smart multi-candidate OCR-based window scanner for videos.
+        Probes up to 12 frames across the full video, runs RapidOCR on each,
         scores by code keyword density + syntax symbol count + vocal energy RMS,
-        filters out project creation / welcome dialogs,
-        and returns (start, duration) for the best 45-second teaching window.
+        and returns the top 3 non-overlapping candidate highlight windows chronologically sorted.
         """
         self.latest_scan_tokens = []
         ocr_engine = get_ocr_engine()
+
+        def make_title(idx: int, t: float, toks: List[str]) -> str:
+            toks_low = [k.lower() for k in toks]
+            if any(k in toks_low for k in ["whacamole", "boardpanel", "jbutton", "actionlistener"]):
+                if any(k in toks_low for k in ["actionlistener", "actionperformed", "event"]):
+                    return "Highlight: Click Handler & Mole Logic"
+                return "Highlight: BoardPanel & JButtons Grid"
+            if any(k in toks_low for k in ["car", "main", "myfirstproject"]):
+                if any(k in toks_low for k in ["new car", "car1", "car2"]):
+                    return "Highlight: Object Instantiation"
+                return "Highlight: Class & Methods Scaffold"
+            if any(k in toks_low for k in ["firstprogram", "apnacollege", "old_age", "age"]):
+                if any(k in toks_low for k in ["old_age", "input", "float", "int"]):
+                    return "Highlight: Input & Type Conversion"
+                if any(k in toks_low for k in ["age", "if", "else", "vote"]):
+                    return "Highlight: Conditional If-Else Logic"
+                return "Highlight: FirstProgram & Variables"
+            if any(k in toks_low for k in ["github", "repository", "sample-repo", "index.html", "terminal"]):
+                if any(k in toks_low for k in ["touch", "index.html", "terminal"]):
+                    return "Highlight: Terminal & Web Entrypoint"
+                if any(k in toks_low for k in ["push", "commit", "origin"]):
+                    return "Highlight: Push to GitHub & Verify"
+                return "Highlight: GitHub Setup & Clone"
+            frac = t / max(1.0, total_duration)
+            if frac < 0.28:
+                return f"Highlight {idx + 1}: Project Setup & Overview"
+            elif frac < 0.70:
+                return f"Highlight {idx + 1}: Core Code Implementation"
+            else:
+                return f"Highlight {idx + 1}: Execution & Verification"
+
         if ocr_engine is None or total_duration <= 90.0:
-            # Short video: sample a frame to collect on-screen tech tokens if possible
             if ocr_engine is not None:
                 try:
                     c = cv2.VideoCapture(video_path)
@@ -320,33 +349,53 @@ class FastModeAEngine:
                     c.release()
                 except Exception:
                     pass
-            start = min(5.0, total_duration * 0.05)
-            dur = min(45.0, total_duration - start)
-            return (start, dur)
+            start1 = min(5.0, total_duration * 0.05)
+            dur1 = min(45.0, total_duration - start1)
+            cands = [{
+                "start_sec": round(start1, 2),
+                "end_sec": round(start1 + dur1, 2),
+                "duration": round(dur1, 2),
+                "title": make_title(0, start1 + dur1 / 2, self.latest_scan_tokens[:6]),
+                "score": 100,
+                "probe_time": round(start1 + dur1 / 2, 2),
+                "tokens": self.latest_scan_tokens[:6],
+            }]
+            if total_duration > 50.0:
+                start2 = max(0.0, total_duration - 45.0)
+                dur2 = min(45.0, total_duration - start2)
+                if start2 > start1 + 15.0:
+                    cands.append({
+                        "start_sec": round(start2, 2),
+                        "end_sec": round(start2 + dur2, 2),
+                        "duration": round(dur2, 2),
+                        "title": make_title(1, start2 + dur2 / 2, self.latest_scan_tokens[:6]),
+                        "score": 85,
+                        "probe_time": round(start2 + dur2 / 2, 2),
+                        "tokens": self.latest_scan_tokens[:6],
+                    })
+            return cands
 
-        # Probe 14 evenly-spaced points across the video
-        probe_fracs = [0.06, 0.10, 0.13, 0.16, 0.22, 0.30, 0.38, 0.46, 0.54, 0.62, 0.70, 0.78, 0.86, 0.94]
+        probe_fracs = [0.08, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
         cap = cv2.VideoCapture(video_path)
-        scores: List[Tuple[float, int]] = []
+        probes: List[Dict[str, Any]] = []
 
         for frac in probe_fracs:
             t = frac * total_duration
             cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
             ret, frame = cap.read()
             if not ret or frame is None:
-                scores.append((t, 0))
                 continue
-            # Run OCR on native frame resolution so small editor text (12-14px) is recognized
             try:
                 res, _ = ocr_engine(frame)
             except Exception:
-                scores.append((t, 0))
                 continue
 
             kw_hits = 0
-            code_structure_hits = 0  # Heavy indicator of actual code (not just text)
+            code_structure_hits = 0
             dialog_hits = 0
+            frame_tokens: List[str] = []
             text_blocks = len(res) if res else 0
+
             if res:
                 for item in res:
                     text = str(item[1]).strip()
@@ -359,37 +408,75 @@ class FastModeAEngine:
                             kw_hits += 1
                         if w in UI_DIALOG_WORDS:
                             dialog_hits += 1
-                    # Count code-structure characters that distinguish code editors from web pages
+                        if len(w) >= 3 and not is_finder_ui_chrome(w) and w not in frame_tokens:
+                            frame_tokens.append(w)
                     for ch in text:
                         if ch in "<>{}();":
                             code_structure_hits += 2
                         elif ch in "=/!#\"'":
                             code_structure_hits += 1
 
-            # Check vocal energy around this point: penalize dead typing silence, reward active speech
             vocal_rms = probe_audio_energy(video_path, t - 1.5, 3.0)
             vocal_factor = 1.3 if vocal_rms >= 0.035 else (0.4 if vocal_rms < 0.015 else 1.0)
 
-            # Heavy penalty if it is a project setup or welcome wizard without actual code keywords
             if dialog_hits >= 2 and kw_hits < 3:
                 score = 0
             else:
                 score = int((code_structure_hits * 3 + kw_hits * 6 + min(text_blocks, 15)) * vocal_factor)
-            scores.append((t, score))
+            probes.append({"t": t, "score": score, "tokens": frame_tokens})
 
         cap.release()
 
-        # Pick the highest-scoring probe time
-        best_t, best_score = max(scores, key=lambda x: x[1])
+        # Greedily pick top non-overlapping candidate centers
+        sorted_probes = sorted(probes, key=lambda x: x["score"], reverse=True)
+        min_sep = max(45.0, min(180.0, total_duration * 0.15))
+        selected_probes: List[Dict[str, Any]] = []
 
-        # Center a 45s window on the best time, clamped to video bounds
-        half = 22.5
-        scan_start = max(0.0, best_t - half)
-        if scan_start + 45.0 > total_duration:
-            scan_start = max(0.0, total_duration - 45.0)
-        scan_duration = min(45.0, total_duration - scan_start)
+        for p in sorted_probes:
+            if not any(abs(p["t"] - s["t"]) < min_sep for s in selected_probes):
+                selected_probes.append(p)
+                if len(selected_probes) >= 3:
+                    break
 
-        return (scan_start, scan_duration)
+        # If fewer than 3 high-score peaks exist, supplement with default spaced anchors
+        if len(selected_probes) < 3:
+            for fallback_frac in [0.20, 0.50, 0.80]:
+                fb_t = fallback_frac * total_duration
+                if not any(abs(fb_t - s["t"]) < min_sep for s in selected_probes):
+                    selected_probes.append({"t": fb_t, "score": 50, "tokens": self.latest_scan_tokens[:4]})
+                    if len(selected_probes) >= 3:
+                        break
+
+        selected_probes.sort(key=lambda x: x["t"])
+
+        candidate_windows: List[Dict[str, Any]] = []
+        for idx, sp in enumerate(selected_probes):
+            t_center = sp["t"]
+            c_start = max(0.0, t_center - 22.5)
+            if c_start + 45.0 > total_duration:
+                c_start = max(0.0, total_duration - 45.0)
+            c_dur = min(45.0, total_duration - c_start)
+            c_end = c_start + c_dur
+            title = make_title(idx, t_center, sp["tokens"])
+            candidate_windows.append({
+                "start_sec": round(c_start, 2),
+                "end_sec": round(c_end, 2),
+                "duration": round(c_dur, 2),
+                "title": title,
+                "score": sp["score"],
+                "probe_time": round(t_center, 2),
+                "tokens": sp["tokens"][:5],
+            })
+
+        return candidate_windows
+
+    def _scan_best_window(self, video_path: str, total_duration: float) -> Tuple[float, float]:
+        """Backward-compatible helper returning (start_sec, duration) for best candidate."""
+        candidates = self._scan_candidate_windows(video_path, total_duration)
+        if candidates:
+            best_cand = max(candidates, key=lambda c: c.get("score", 0))
+            return (best_cand["start_sec"], best_cand["duration"])
+        return (0.0, min(45.0, total_duration))
 
     def _extract_code_from_frames(
         self,
@@ -590,8 +677,13 @@ class FastModeAEngine:
         video_id = uuid.uuid4().hex[:8]
         total_duration = probe_video_duration(video_path)
 
-        # 1. Smart Window Selection: OCR-based multi-point scan for long videos
-        scan_start, scan_duration = self._scan_best_window(video_path, total_duration)
+        # 1. Smart Multi-Candidate Window Selection (OCR-based scan across video)
+        candidate_windows = self._scan_candidate_windows(video_path, total_duration)
+        best_cand = max(candidate_windows, key=lambda c: c.get("score", 0)) if candidate_windows else {
+            "start_sec": 0.0, "duration": min(45.0, total_duration), "title": "Highlight 1: Core Lecture"
+        }
+        scan_start = best_cand["start_sec"]
+        scan_duration = best_cand["duration"]
 
         # 2. Extract Audio
         wav_path = str(CACHE_DIR / f"audio_{video_id}.wav")
@@ -1089,7 +1181,7 @@ class FastModeAEngine:
 
         # Dynamic Telemetry Scores computed from actual audio RMS and video tokens
         try:
-            with wave.open(temp_wav, "r") as wf:
+            with wave.open(wav_path, "r") as wf:
                 frames = wf.readframes(min(wf.getnframes(), int(wf.getframerate() * max(1.0, clip_duration))))
                 samples = np.frombuffer(frames, dtype=np.int16).astype(float)
                 rms = np.sqrt(np.mean(samples**2)) if len(samples) > 0 else 800.0
@@ -1104,6 +1196,39 @@ class FastModeAEngine:
 
         hashtags = growth_pack["hashtags"]
         elapsed = round(time.time() - t_start, 2)
+
+        # Build candidate clips list for UI switcher
+        candidate_clips = []
+        for idx, cw in enumerate(candidate_windows):
+            is_active = (abs(cw["start_sec"] - clip_start) < 4.0)
+            candidate_clips.append({
+                "clip_id": f"reel_{video_id}" if is_active else f"cand_{video_id}_{idx}",
+                "title": cw["title"],
+                "start_sec": round(clip_start, 2) if is_active else round(cw["start_sec"], 2),
+                "end_sec": round(clip_end, 2) if is_active else round(cw["end_sec"], 2),
+                "duration": round(clip_duration, 2) if is_active else round(cw["duration"], 2),
+                "video_url": f"/outputs/reel_{video_id}.mp4?t={int(time.time())}" if is_active else "",
+                "source_video_path": video_path,
+                "code_snippet": code_snippet if is_active else "",
+                "code_preview": (code_snippet.split("\n")[0] if is_active else ", ".join(cw.get("tokens", [])[:3])),
+                "score": cw.get("score", 100),
+                "words": clip_words if is_active else [],
+                "transcript_words": words if is_active else [],
+                "repaired_terms": repaired_terms if is_active else [],
+                "hashtags": hashtags[:6],
+                "social_growth_pack": growth_pack,
+                "vocal_energy_score": vocal_energy_score,
+                "screen_activity_score": screen_activity_score,
+                "technical_density_score": technical_density_score,
+                "is_bug_to_fix": is_bug_to_fix,
+                "safe_cohort_active": False,
+                "silent_typing_gap_seconds": 3.2,
+            })
+
+        # Ensure active clip is at index 0
+        active_idx = next((i for i, c in enumerate(candidate_clips) if c.get("video_url")), 0)
+        if active_idx != 0:
+            candidate_clips.insert(0, candidate_clips.pop(active_idx))
 
         return {
             "status": "success",
@@ -1127,6 +1252,8 @@ class FastModeAEngine:
             "safe_cohort_active": False,
             "silent_typing_gap_seconds": 3.2,
             "social_growth_pack": growth_pack,
+            "clips": candidate_clips,
+            "candidate_clips": candidate_clips,
             "elapsed_seconds": elapsed,
         }
 
@@ -1154,7 +1281,46 @@ class FastModeAEngine:
         t_start = time.time()
         c_id = clip_id or uuid.uuid4().hex[:8]
         duration = max(3.0, end_sec - start_sec)
-        formatted_snippet = auto_indent_code(code_snippet)
+        formatted_snippet = auto_indent_code(code_snippet) if code_snippet else ""
+
+        # If snippet is default or empty, attempt extraction from the sliced window
+        if (not formatted_snippet or "Production code snippet" in formatted_snippet or "Updated Code Snippet" in formatted_snippet) and os.path.exists(source_video_path):
+            try:
+                cap = cv2.VideoCapture(source_video_path)
+                ocr_engine = get_ocr_engine()
+                sample_times = [start_sec + 0.25 * duration, start_sec + 0.75 * duration]
+                re_frames = []
+                re_tokens = []
+                for st in sample_times:
+                    cap.set(cv2.CAP_PROP_POS_MSEC, st * 1000.0)
+                    r, f = cap.read()
+                    if r and f is not None:
+                        re_frames.append(f)
+                        if ocr_engine:
+                            res, _ = ocr_engine(f)
+                            if res:
+                                for item in res:
+                                    pts, text, conf = item[0], str(item[1]).strip(), float(item[2])
+                                    if conf >= 0.45 and len(text) >= 3 and not is_finder_ui_chrome(text):
+                                        x0 = int(min(p[0] for p in pts))
+                                        y0 = int(min(p[1] for p in pts))
+                                        x1 = int(max(p[0] for p in pts))
+                                        y1 = int(max(p[1] for p in pts))
+                                        re_tokens.append({
+                                            "text": text,
+                                            "bbox": (x0, y0, x1 - x0, y1 - y0),
+                                            "frame": f,
+                                            "time": st,
+                                        })
+                cap.release()
+                extracted = self._extract_code_from_frames(re_frames, re_tokens, sample_times)
+                if extracted and len(extracted.strip()) > 15:
+                    formatted_snippet = auto_indent_code(extracted)
+            except Exception:
+                pass
+
+        if not formatted_snippet:
+            formatted_snippet = "# Code Spotlight\n# Trimmed Lecture Highlight"
 
         snip_low = formatted_snippet.lower()
         if any(k in snip_low for k in ["<!doctype", "<html", "<body", "<head", "</", "<div"]):

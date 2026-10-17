@@ -199,7 +199,8 @@ async def process_video(
         "safe_cohort_active": result.get("safe_cohort_active", False),
         "silent_typing_gap_seconds": result.get("silent_typing_gap_seconds", 3.2),
         "social_growth_pack": result.get("social_growth_pack", default_growth_pack),
-        "clips": [clip_dict],
+        "clips": result.get("clips") or [clip_dict],
+        "candidate_clips": result.get("candidate_clips") or [clip_dict],
         "elapsed_seconds": result.get("elapsed_seconds", 0.0),
     }
 

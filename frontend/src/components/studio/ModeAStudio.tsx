@@ -62,6 +62,7 @@ interface ClipData {
   transcript_words?: any[];
   repaired_terms: RepairedTerm[];
   code_snippet: string;
+  code_preview?: string;
   hashtags: string[];
   growth_pack: SocialGrowthPack;
   vocal_energy_score: number;
@@ -149,14 +150,61 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
 
   // Active clip state
   const [clip, setClip] = useState<ClipData | null>(null);
+  const [clips, setClips] = useState<ClipData[]>([]);
+  const [activeClipIndex, setActiveClipIndex] = useState<number>(0);
   const [cacheBuster, setCacheBuster] = useState<number>(Date.now());
   const [trimStart, setTrimStart] = useState<number>(0);
   const [trimEnd, setTrimEnd] = useState<number>(30);
+  const [trimStartInput, setTrimStartInput] = useState<string>('0');
+  const [trimEndInput, setTrimEndInput] = useState<string>('30');
   const [editableCode, setEditableCode] = useState<string>(
     `// Production code snippet\nfunction processItem(item) {\n  return item.validate();\n}`
   );
   const [isRerendering, setIsRerendering] = useState<boolean>(false);
   const [rerenderNotice, setRerenderNotice] = useState<string | null>(null);
+
+  // Sync string inputs with trimStart and trimEnd
+  useEffect(() => {
+    setTrimStartInput(String(trimStart));
+  }, [trimStart]);
+
+  useEffect(() => {
+    setTrimEndInput(String(trimEnd));
+  }, [trimEnd]);
+
+  const commitTrimInputs = () => {
+    const s = parseFloat(trimStartInput);
+    const e = parseFloat(trimEndInput);
+    if (!isNaN(s) && !isNaN(e) && e > s) {
+      const validS = Math.max(0, s);
+      const validE = Math.max(validS + 3, e);
+      setTrimStart(validS);
+      setTrimEnd(validE);
+      return { start: validS, end: validE };
+    }
+    return { start: trimStart, end: trimEnd };
+  };
+
+  const nudgeStart = (delta: number) => {
+    const current = parseFloat(trimStartInput) || trimStart;
+    const nextVal = Math.max(0, Math.round((current + delta) * 2) / 2);
+    if (nextVal < trimEnd - 2) {
+      setTrimStart(nextVal);
+      setTrimStartInput(String(nextVal));
+    }
+  };
+
+  const nudgeEnd = (delta: number) => {
+    const current = parseFloat(trimEndInput) || trimEnd;
+    const nextVal = Math.max(trimStart + 3, Math.round((current + delta) * 2) / 2);
+    setTrimEnd(nextVal);
+    setTrimEndInput(String(nextVal));
+  };
+
+  const isTrimModified =
+    clip !== null &&
+    (Math.abs((parseFloat(trimStartInput) || 0) - clip.start_sec) > 0.3 ||
+      Math.abs((parseFloat(trimEndInput) || 30) - clip.end_sec) > 0.3);
 
   // Layout & Settings
   const [privacyShieldActive, setPrivacyShieldActive] = useState<boolean>(true);
@@ -252,37 +300,44 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
       const finalRepairs = backendRepairs.length > 0 ? backendRepairs : DEMO_REPAIRED_TERMS;
       const extractedCode = data.code_snippet || editableCode;
 
-      const cData: ClipData = {
-        clip_id: data.clip_id || 'reel_1',
-        title: selectedFile.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
-        video_url: data.video_url || '/outputs/reel_1.mp4',
-        source_video_path: data.source_video_path || '',
-        start_sec: data.start_sec || 0,
-        end_sec: data.end_sec || 30,
-        duration: data.duration_seconds || 30,
-        transcript: data.transcript || '',
-        words: data.words || [],
-        transcript_words: data.transcript_words || data.words || [],
-        repaired_terms: finalRepairs,
-        code_snippet: extractedCode,
-        hashtags: data.hashtags || ['#coding', '#tech', '#softwareengineering'],
+      const rawClips = Array.isArray(data.clips) && data.clips.length > 0 ? data.clips : [data];
+      const parsedClips: ClipData[] = rawClips.map((c: any, idx: number) => ({
+        clip_id: c.clip_id || `reel_${idx}`,
+        title: c.title || `${selectedFile.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ')} (Part ${idx + 1})`,
+        video_url: c.video_url || (idx === 0 ? data.video_url : ''),
+        source_video_path: c.source_video_path || data.source_video_path || '',
+        start_sec: Number(c.start_sec ?? 0),
+        end_sec: Number(c.end_sec ?? 30),
+        duration: Number(c.duration ?? 30),
+        transcript: c.transcript || data.transcript || '',
+        words: c.words || data.words || [],
+        transcript_words: c.transcript_words || data.transcript_words || [],
+        repaired_terms: c.repaired_terms && c.repaired_terms.length > 0 ? c.repaired_terms : finalRepairs,
+        code_snippet: c.code_snippet || extractedCode,
+        code_preview: c.code_preview || '',
+        hashtags: c.hashtags || data.hashtags || ['#coding', '#tech', '#softwareengineering'],
         growth_pack: {
           ...DEFAULT_GROWTH_PACK,
-          hook_title: `Master ${data.code_snippet ? 'Architecture' : 'Core Concept'} in 30 Seconds ⚡`,
-          pinned_code_comment: buildPinnedCodeComment(extractedCode),
+          hook_title: `Master ${c.title || 'Core Architecture'} in 30 Seconds ⚡`,
+          pinned_code_comment: buildPinnedCodeComment(c.code_snippet || extractedCode),
         },
-        vocal_energy_score: 88.5,
-        screen_activity_score: 92.4,
-        bug2fix_detected: true,
+        vocal_energy_score: c.vocal_energy_score ?? 88.5,
+        screen_activity_score: c.screen_activity_score ?? 92.4,
+        bug2fix_detected: Boolean(c.is_bug_to_fix ?? true),
         key_teaching_moment: true,
         typing_hyperlapse_sec: 3.2,
-      };
+      }));
 
-      setClip(cData);
-      setTrimStart(cData.start_sec);
-      setTrimEnd(cData.end_sec);
-      setEditableCode(cData.code_snippet);
-      setGrowthPack(cData.growth_pack);
+      setClips(parsedClips);
+      setActiveClipIndex(0);
+      const primaryClip = parsedClips[0];
+      setClip(primaryClip);
+      setTrimStart(primaryClip.start_sec);
+      setTrimEnd(primaryClip.end_sec);
+      setTrimStartInput(String(primaryClip.start_sec));
+      setTrimEndInput(String(primaryClip.end_sec));
+      setEditableCode(primaryClip.code_snippet);
+      setGrowthPack(primaryClip.growth_pack);
       setCacheBuster(Date.now());
     } catch (err: any) {
       setErrorMsg(err.message || 'Error processing video.');
@@ -291,10 +346,33 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
     }
   };
 
-  const handleRerender = async () => {
+  const handleSelectHighlight = async (index: number) => {
+    if (!clips[index]) return;
+    setActiveClipIndex(index);
+    const target = clips[index];
+    setTrimStart(target.start_sec);
+    setTrimEnd(target.end_sec);
+    setTrimStartInput(String(target.start_sec));
+    setTrimEndInput(String(target.end_sec));
+    if (target.code_snippet) {
+      setEditableCode(target.code_snippet);
+    }
+    if (target.video_url && target.video_url.length > 5) {
+      setClip(target);
+      setCacheBuster(Date.now());
+    } else {
+      handleRerender(target.start_sec, target.end_sec, target.code_snippet);
+    }
+  };
+
+  const handleRerender = async (overrideStart?: number, overrideEnd?: number, overrideCode?: string) => {
     if (!clip) return;
     setIsRerendering(true);
     setRerenderNotice(null);
+
+    const s = overrideStart !== undefined ? overrideStart : Number(trimStart);
+    const e = overrideEnd !== undefined ? overrideEnd : Number(trimEnd);
+    const code = overrideCode !== undefined ? overrideCode : editableCode;
 
     try {
       const response = await fetch('http://localhost:8000/api/v1/mode-a/rerender-clip', {
@@ -303,13 +381,13 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
         body: JSON.stringify({
           clip_id: clip.clip_id,
           source_video_path: clip.source_video_path,
-          start_sec: Number(trimStart),
-          end_sec: Number(trimEnd),
-          code_snippet: editableCode,
+          start_sec: s,
+          end_sec: e,
+          code_snippet: code,
           words: clip.transcript_words || clip.words || [],
           transcript_words: clip.transcript_words || clip.words || [],
           template_archetype: templateArchetype,
-          layout_mode: 'split_stage',
+          layout_mode: 'single_focus',
           silent_typing_hyperlapse: silentTypingHyperlapse,
           privacy_shield: privacyShieldActive,
           brand_kit: {
@@ -332,12 +410,19 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
               start_sec: res.start_sec,
               end_sec: res.end_sec,
               duration: res.duration,
-              code_snippet: res.code_snippet,
+              code_snippet: res.code_snippet || prev.code_snippet,
               words: res.words || prev.words,
               transcript_words: res.transcript_words || res.words || prev.transcript_words,
             }
           : null
       );
+      setTrimStart(res.start_sec);
+      setTrimEnd(res.end_sec);
+      setTrimStartInput(String(res.start_sec));
+      setTrimEndInput(String(res.end_sec));
+      if (res.code_snippet) {
+        setEditableCode(res.code_snippet);
+      }
       setCacheBuster(Date.now());
       setRerenderNotice(`Re-rendered in ${res.elapsed_seconds || 2.4}s!`);
       setTimeout(() => setRerenderNotice(null), 4000);
@@ -565,6 +650,50 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
             </div>
           </div>
 
+          {/* AI-Discovered Highlights Switcher */}
+          {clips.length > 1 && (
+            <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs flex flex-col gap-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-800">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="size-3.5 text-indigo-600" />
+                  AI-Discovered Lecture Highlights ({clips.length})
+                </span>
+                <span className="text-[11px] text-slate-500 font-normal">
+                  Click any key moment to switch &amp; re-render reel in 3s
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {clips.map((c, idx) => {
+                  const isActive = activeClipIndex === idx;
+                  return (
+                    <button
+                      key={c.clip_id || idx}
+                      type="button"
+                      onClick={() => handleSelectHighlight(idx)}
+                      className={`p-3 rounded-lg text-left border transition-all cursor-pointer flex flex-col gap-1 ${
+                        isActive
+                          ? 'bg-indigo-50/70 border-indigo-500 shadow-xs ring-1 ring-indigo-500/30'
+                          : 'bg-slate-50/70 hover:bg-slate-100/70 border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className={`text-xs font-semibold truncate ${isActive ? 'text-indigo-950' : 'text-slate-800'}`}>
+                          {c.title || `Highlight ${idx + 1}`}
+                        </span>
+                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-mono shrink-0 ${isActive ? 'bg-indigo-100 text-indigo-800 border-indigo-300' : 'bg-white text-slate-600'}`}>
+                          {Math.round(c.start_sec)}s – {Math.round(c.end_sec)}s
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-slate-500 line-clamp-1 font-mono">
+                        {c.code_preview ? c.code_preview : `Duration: ${Math.round(c.duration)}s`}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Center Column (5 Cols): Video Player & Summary Card */}
             <div className="lg:col-span-5 flex flex-col items-center gap-4">
@@ -682,32 +811,110 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
 
                 <CardContent className="pt-4 flex flex-col gap-4">
                   {/* Trim Sliders / Inputs */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <Label className="text-xs text-slate-600 flex items-center gap-1">
-                        <Clock className="size-3 text-slate-400" />
-                        Start Time (s)
-                      </Label>
-                      <Input
-                        type="number"
-                        step="0.5"
-                        value={trimStart}
-                        onChange={(e) => setTrimStart(parseFloat(e.target.value) || 0)}
-                        className="h-8 text-xs font-mono bg-slate-50 border-slate-200"
-                      />
+                  <div className="flex flex-col gap-2.5 p-3 rounded-lg bg-slate-50 border border-slate-200">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs text-slate-700 font-medium flex items-center gap-1">
+                            <Clock className="size-3 text-slate-400" />
+                            Start Time (s)
+                          </Label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => nudgeStart(-5)}
+                              className="px-1.5 py-0.5 text-[10px] bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
+                              title="Subtract 5 seconds"
+                            >
+                              -5s
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => nudgeStart(5)}
+                              className="px-1.5 py-0.5 text-[10px] bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
+                              title="Add 5 seconds"
+                            >
+                              +5s
+                            </button>
+                          </div>
+                        </div>
+                        <Input
+                          type="text"
+                          value={trimStartInput}
+                          onChange={(e) => setTrimStartInput(e.target.value)}
+                          onBlur={commitTrimInputs}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const { start, end } = commitTrimInputs();
+                              handleRerender(start, end);
+                            }
+                          }}
+                          placeholder="0.0"
+                          className="h-8.5 text-xs font-mono font-medium bg-white border-slate-200 text-slate-900 focus:border-indigo-500"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs text-slate-700 font-medium flex items-center gap-1">
+                            <Clock className="size-3 text-slate-400" />
+                            End Time (s)
+                          </Label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => nudgeEnd(-5)}
+                              className="px-1.5 py-0.5 text-[10px] bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
+                              title="Subtract 5 seconds"
+                            >
+                              -5s
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => nudgeEnd(5)}
+                              className="px-1.5 py-0.5 text-[10px] bg-white border border-slate-200 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
+                              title="Add 5 seconds"
+                            >
+                              +5s
+                            </button>
+                          </div>
+                        </div>
+                        <Input
+                          type="text"
+                          value={trimEndInput}
+                          onChange={(e) => setTrimEndInput(e.target.value)}
+                          onBlur={commitTrimInputs}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const { start, end } = commitTrimInputs();
+                              handleRerender(start, end);
+                            }
+                          }}
+                          placeholder="30.0"
+                          className="h-8.5 text-xs font-mono font-medium bg-white border-slate-200 text-slate-900 focus:border-indigo-500"
+                        />
+                      </div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <Label className="text-xs text-slate-600 flex items-center gap-1">
-                        <Clock className="size-3 text-slate-400" />
-                        End Time (s)
-                      </Label>
-                      <Input
-                        type="number"
-                        step="0.5"
-                        value={trimEnd}
-                        onChange={(e) => setTrimEnd(parseFloat(e.target.value) || 30)}
-                        className="h-8 text-xs font-mono bg-slate-50 border-slate-200"
-                      />
+
+                    {/* Dedicated Prominent Apply Trim Button right next to inputs */}
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          const { start, end } = commitTrimInputs();
+                          handleRerender(start, end);
+                        }}
+                        disabled={isRerendering}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs h-8 px-3.5 gap-1.5 shadow-xs transition-colors cursor-pointer"
+                      >
+                        <RefreshCw className={`size-3 ${isRerendering ? 'animate-spin' : ''}`} />
+                        {isRerendering ? 'Re-Rendering...' : 'Apply Trim & Re-Render (3s)'}
+                      </Button>
+                      {isTrimModified && (
+                        <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded font-medium flex items-center gap-1">
+                          <AlertCircle className="size-3 text-amber-600" />
+                          Unapplied: [{trimStartInput}s – {trimEndInput}s]
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -772,9 +979,9 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
                     />
                   </div>
 
-                  <div className="flex justify-end pt-1">
+                    <div className="flex justify-end pt-1">
                     <Button
-                      onClick={handleRerender}
+                      onClick={() => handleRerender()}
                       disabled={isRerendering}
                       className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs h-8.5 px-4 gap-2 shadow-xs transition-colors"
                     >
