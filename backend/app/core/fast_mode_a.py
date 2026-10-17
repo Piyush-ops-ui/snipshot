@@ -171,7 +171,7 @@ TECH_DICTIONARY = [
     "interface", "implements", "extends", "abstract", "virtual", "override",
     "try", "catch", "finally", "except", "raise", "throw", "syntax", "runtime",
     "sample-repo", "GitHub Desktop", "index.html", "VS Code", "Terminal", "Playground",
-    "FirstProgram", "print", "Hello World", "Tony Stark", "PyCharm", "Virtualenv",
+    "FirstProgram", "print", "Hello World", "PyCharm", "Virtualenv",
     "WhacAMole", "boardPanel", "tile", "JButton", "JFrame", "ActionListener", "setFocusable",
     "Main.java", "Car.java", "MyFirstProject", "println", "Ford Mustang",
 ]
@@ -496,7 +496,8 @@ class FastModeAEngine:
         for st_time, f_img in zip(sample_times, sampled_frames):
             f_tokens = [
                 tok for tok in clean_screen_tokens
-                if tok.get("frame") is f_img and not is_finder_ui_chrome(tok["text"])
+                if (tok.get("frame") is f_img or abs(tok.get("time", -999.0) - st_time) < 0.25)
+                and not is_finder_ui_chrome(tok["text"])
             ]
             score = sum(1 for tok in f_tokens if any(ch in syntax_chars for ch in tok["text"]))
             if score > best_frame_score:
@@ -504,7 +505,10 @@ class FastModeAEngine:
                 best_frame_data = (f_img, f_tokens)
 
         if not best_frame_data or not best_frame_data[1]:
-            return ""
+            if clean_screen_tokens:
+                best_frame_data = (sampled_frames[0] if sampled_frames else None, clean_screen_tokens)
+            else:
+                return ""
 
         f_img, f_tokens = best_frame_data
         content_boxes = [
@@ -689,18 +693,10 @@ class FastModeAEngine:
         wav_path = str(CACHE_DIR / f"audio_{video_id}.wav")
         extract_audio_segment(video_path, scan_start, scan_duration, wav_path)
 
-        # 3. Whisper ASR with Screen-Grounded Prompt & Tight VAD (FIX 4)
+        # 3. Whisper ASR with Auto Language & Repetition Guard
         whisper = get_whisper_model()
         words: List[Dict[str, Any]] = []
         transcript_text = ""
-
-        asr_prompt = (
-            "Hinglish coding lecture. Java ek case-sensitive language hai. "
-            "Variable, identifier, function, class, object, method, String, int, boolean, array, "
-            "boardPanel, ActionListener, JButton, GitHub, repository, VS Code, terminal, compile, error, output."
-        )
-        if getattr(self, "latest_scan_tokens", None):
-            asr_prompt += " " + " ".join(self.latest_scan_tokens[:25])
 
         if whisper is not None and os.path.exists(wav_path):
             try:
@@ -710,7 +706,7 @@ class FastModeAEngine:
                     best_of=1,
                     temperature=0.0,
                     word_timestamps=True,
-                    initial_prompt=asr_prompt,
+                    initial_prompt=None,
                     condition_on_previous_text=False,
                     vad_filter=True,
                     vad_parameters=dict(min_silence_duration_ms=350, speech_pad_ms=200),
@@ -719,43 +715,104 @@ class FastModeAEngine:
                     no_repeat_ngram_size=3,
                     language=None,
                 )
-                # If auto-detected language is not English or Hindi, re-transcribe with language='en'
-                if info.language not in ('en', 'hi'):
-                    segments, info = whisper.transcribe(
-                        wav_path,
-                        beam_size=1,
-                        best_of=1,
-                        temperature=0.0,
-                        word_timestamps=True,
-                        initial_prompt=asr_prompt,
-                        condition_on_previous_text=False,
-                        vad_filter=True,
-                        vad_parameters=dict(min_silence_duration_ms=350, speech_pad_ms=200),
-                        compression_ratio_threshold=2.2,
-                        repetition_penalty=1.2,
-                        no_repeat_ngram_size=3,
-                        language='en',
-                    )
                 for seg in segments:
                     cleaned_seg_text = re.sub(r'(\b\S+\b)(?:\s+\1){2,}', r'\1', seg.text).strip()
                     if seg.words:
                         for w in seg.words:
                             clean_w = w.word.strip()
                             if clean_w:
-                                abs_s = round(w.start + scan_start, 2)
-                                abs_e = round(w.end + scan_start, 2)
+                                abs_s = round(float(w.start or 0.0) + scan_start, 2)
+                                abs_e = round(float(w.end or (w.start or 0.0) + 0.2) + scan_start, 2)
+                                prob = getattr(w, "probability", None)
+                                conf = round(float(prob), 2) if prob is not None else 0.9
                                 words.append({
                                     "word": clean_w,
                                     "abs_start": abs_s,
                                     "abs_end": abs_e,
                                     "start": abs_s,
                                     "end": abs_e,
-                                    "confidence": round(w.probability, 2),
-                                    "probability": round(w.probability, 2),
+                                    "confidence": conf,
+                                    "probability": conf,
                                 })
                     elif cleaned_seg_text:
-                        abs_s = round(seg.start + scan_start, 2)
-                        abs_e = round(seg.end + scan_start, 2)
+                        abs_s = round(float(seg.start or 0.0) + scan_start, 2)
+                        abs_e = round(float(seg.end or (seg.start or 0.0) + 0.5) + scan_start, 2)
+                        words.append({
+                            "word": cleaned_seg_text,
+                            "abs_start": abs_s,
+                            "abs_end": abs_e,
+                            "start": abs_s,
+                            "end": abs_e,
+                            "confidence": 0.9,
+                            "probability": 0.9,
+                        })
+
+                # Fallback retry without vad_filter if no speech was detected
+                if not words:
+                    fallback_segs, _ = whisper.transcribe(
+                        wav_path,
+                        beam_size=1,
+                        temperature=0.0,
+                        word_timestamps=True,
+                        initial_prompt=None,
+                        condition_on_previous_text=False,
+                        vad_filter=False,
+                        compression_ratio_threshold=2.2,
+                        repetition_penalty=1.2,
+                        no_repeat_ngram_size=3,
+                        language=None,
+                    )
+                    for seg in fallback_segs:
+                        cleaned_seg_text = re.sub(r'(\b\S+\b)(?:\s+\1){2,}', r'\1', seg.text).strip()
+                        if seg.words:
+                            for w in seg.words:
+                                clean_w = w.word.strip()
+                                if clean_w:
+                                    abs_s = round(float(w.start or 0.0) + scan_start, 2)
+                                    abs_e = round(float(w.end or (w.start or 0.0) + 0.2) + scan_start, 2)
+                                    prob = getattr(w, "probability", None)
+                                    conf = round(float(prob), 2) if prob is not None else 0.9
+                                    words.append({
+                                        "word": clean_w,
+                                        "abs_start": abs_s,
+                                        "abs_end": abs_e,
+                                        "start": abs_s,
+                                        "end": abs_e,
+                                        "confidence": conf,
+                                        "probability": conf,
+                                    })
+                        elif cleaned_seg_text:
+                            abs_s = round(float(seg.start or 0.0) + scan_start, 2)
+                            abs_e = round(float(seg.end or (seg.start or 0.0) + 0.5) + scan_start, 2)
+                            words.append({
+                                "word": cleaned_seg_text,
+                                "abs_start": abs_s,
+                                "abs_end": abs_e,
+                                "start": abs_s,
+                                "end": abs_e,
+                                "confidence": 0.9,
+                                "probability": 0.9,
+                            })
+                    if seg.words:
+                        for w in seg.words:
+                            clean_w = w.word.strip()
+                            if clean_w:
+                                abs_s = round(float(w.start or 0.0) + scan_start, 2)
+                                abs_e = round(float(w.end or (w.start or 0.0) + 0.2) + scan_start, 2)
+                                prob = getattr(w, "probability", None)
+                                conf = round(float(prob), 2) if prob is not None else 0.9
+                                words.append({
+                                    "word": clean_w,
+                                    "abs_start": abs_s,
+                                    "abs_end": abs_e,
+                                    "start": abs_s,
+                                    "end": abs_e,
+                                    "confidence": conf,
+                                    "probability": conf,
+                                })
+                    elif cleaned_seg_text:
+                        abs_s = round(float(seg.start or 0.0) + scan_start, 2)
+                        abs_e = round(float(seg.end or (seg.start or 0.0) + 0.5) + scan_start, 2)
                         words.append({
                             "word": cleaned_seg_text,
                             "abs_start": abs_s,
@@ -769,10 +826,11 @@ class FastModeAEngine:
                 screen_text_list = getattr(self, "latest_scan_tokens", []) + TECH_DICTIONARY
                 words = normalize_word_timestamps(words, screen_tokens=screen_text_list)
                 words = clean_hinglish_with_ocr(words, screen_tokens=screen_text_list)
-                transcript_text = normalize_to_hinglish(" ".join([w["word"] for w in words]), screen_tokens=screen_text_list)
+                transcript_text = normalize_to_hinglish(" ".join([str(w["word"]) for w in words]), screen_tokens=screen_text_list)
                 transcript_text = clean_hinglish_with_ocr(transcript_text, screen_tokens=screen_text_list)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Whisper processing warning: {e}")
 
         # 4. Highlight Span Selection & Speech Onset Snapping (FIX 3)
         clip_start = scan_start
@@ -801,7 +859,7 @@ class FastModeAEngine:
         clip_duration = max(5.0, clip_end - clip_start)
 
         # Slice words for this clip and compute relative word timestamps (FIX 3)
-        raw_clip_words = [w for w in words if clip_start <= float(w.get("abs_start", w["start"])) <= clip_end + 0.5]
+        raw_clip_words = [w for w in words if clip_start - 0.5 <= float(w.get("abs_start", w["start"])) <= clip_end + 0.5]
         if not raw_clip_words and words:
             raw_clip_words = words
 
@@ -993,105 +1051,21 @@ class FastModeAEngine:
                 if len(repaired_terms) >= 3:
                     break
 
-        # 8. Dynamic Screen Code & Notes Reconstruction (BUG 2: Finder Filter + HTML & CLI Workflow)
-        # 8. Dynamic Screen Code & Notes Reconstruction (Video-Agnostic with Indentation Preservation)
-        all_screen_str = " ".join([st["text"] for st in clean_screen_tokens]).lower()
-        all_combined = f"{all_screen_str} {transcript_text.lower()}"
-
-        is_python_lecture = any(k in all_screen_str for k in ["firstprogram", "apnacollege", "pycharm", "pythonproject"]) or any(k in all_combined for k in ["firstprogram", "apna college", "shradha", "python"])
-        is_java_swing = any(k in all_screen_str for k in ["whacamole", "boardpanel", "actionlistener", "mario:whacamole"]) or any(k in all_combined for k in ["whacamole", "whac-a-mole", "boardpanel", "jbutton"])
-        is_java_oop = any(k in all_screen_str for k in ["myfirstproject", "car.java", "main.java", "car2.make"]) or any(k in all_combined for k in ["myfirstproject", "car.java", "ford mustang", "car1", "car2"])
-        is_git_workflow = any(k in all_screen_str for k in ["github desktop", "sampe-repo", "sample-repo", "stock-management"]) or any(k in all_combined for k in ["github desktop", "sample-repo", "touch index.html", "about.html", "cd sample-repo"])
-
-        code_snippet = ""
+        # 8. Dynamic Screen Code & Notes Reconstruction (100% Video-Agnostic via RapidOCR)
+        code_snippet = self._extract_code_from_frames(sampled_frames, clean_screen_tokens, sample_times)
         code_language = "code"
 
-        # Case 1: Python FirstProgram Lecture (Video 1)
-        if is_python_lecture:
-            code_snippet = (
-                "# FirstProgram.py - Hello World in Python\n"
-                "print(\"Hello World\")\n"
-                "name = \"Tony Stark\"\n"
-                "age = 51\n"
-                "is_genius = True\n\n"
-                "if age >= 18:\n"
-                "    print(\"you are an adult\")\n"
-                "    print(\"you can vote\")"
-            )
-            code_language = "python"
-        # Case 2: Java Swing WhacAMole (Video 2)
-        elif is_java_swing:
-            code_snippet = (
-                "// WhacAMole.java - Board Panel Setup\n"
-                "for (int i = 0; i < 9; i++) {\n"
-                "    JButton tile = new JButton();\n"
-                "    board[i] = tile;\n"
-                "    boardPanel.add(tile);\n"
-                "    tile.setFocusable(false);\n"
-                "    tile.addActionListener(new ActionListener() {\n"
-                "        public void actionPerformed(ActionEvent e) {\n"
-                "            JButton tile = (JButton) e.getSource();\n"
-                "        }\n"
-                "    });\n"
-                "}"
-            )
-            code_language = "java"
-        # Case 3: Java OOP Classes (Video 3)
-        elif is_java_oop:
-            code_snippet = (
-                "// Main.java - OOP Object Instantiation\n"
-                "public class Main {\n"
-                "    public static void main(String[] args) {\n"
-                "        Car car1 = new Car();\n"
-                "        Car car2 = new Car();\n\n"
-                "        System.out.println(car1.make);\n"
-                "        System.out.println(car1.model);\n"
-                "        System.out.println(car2.make + \" \" + car2.model);\n"
-                "    }\n"
-                "}"
-            )
-            code_language = "java"
-        # Case 4: GitHub Desktop & Terminal (Video 4)
-        elif is_git_workflow:
-            code_snippet = (
-                "# Workflow: GitHub Desktop & Terminal\n"
-                "1. Create & Clone 'sample-repo'\n"
-                "2. Open in VS Code:\n"
-                "   $ cd sample-repo\n"
-                "   $ code .\n"
-                "3. Create Web Entrypoint:\n"
-                "   $ touch index.html"
-            )
-            code_language = "bash"
-        # Case 5: Real HTML detected on screen
-        elif any(tag in all_screen_str for tag in ["<!doctype", "<html", "<body", "</html>", "</body>", "<head>", "</head>", "<h1>", "</h1>", "<title>"]):
-            code_snippet = (
-                "<!DOCTYPE html>\n"
-                "<html lang=\"en\">\n"
-                "<head>\n"
-                "  <meta charset=\"UTF-8\">\n"
-                "  <title>sample-repo</title>\n"
-                "</head>\n"
-                "<body>\n"
-                "  <h1>Congratulations on your first code push on Github</h1>\n"
-                "</body>\n"
-                "</html>"
-            )
-            code_language = "html"
-        else:
-            code_snippet = self._extract_code_from_frames(sampled_frames, clean_screen_tokens, sample_times)
-
-            if not code_snippet.strip():
-                if clean_screen_tokens:
-                    code_snippet = "\n".join([st["text"] for st in clean_screen_tokens[:8] if not is_finder_ui_chrome(st["text"])])
-                    code_language = "notes"
-                elif transcript_text.strip():
-                    sentences = [s.strip() for s in re.split(r"[.!?।]", transcript_text) if len(s.strip()) > 5]
-                    code_snippet = "# Spoken Key Points\n" + "\n".join(f"- {s}" for s in sentences[:4])
-                    code_language = "summary"
-                else:
-                    code_snippet = "# Active Lecture Highlight\n# Screen-Grounded Code Reel"
-                    code_language = "notes"
+        if not code_snippet.strip():
+            if clean_screen_tokens:
+                code_snippet = "\n".join([st["text"] for st in clean_screen_tokens[:8] if not is_finder_ui_chrome(st["text"])])
+                code_language = "notes"
+            elif transcript_text.strip():
+                sentences = [s.strip() for s in re.split(r"[.!?।]", transcript_text) if len(s.strip()) > 5]
+                code_snippet = "# Spoken Key Points\n" + "\n".join(f"- {s}" for s in sentences[:4])
+                code_language = "summary"
+            else:
+                code_snippet = "# Active Lecture Highlight\n# Screen-Grounded Code Reel"
+                code_language = "notes"
 
         # Format and indent code snippet cleanly for mobile 9:16 card (FIX 1)
         code_snippet = auto_indent_code(code_snippet)
@@ -1172,10 +1146,20 @@ class FastModeAEngine:
         )
 
         # Cache full list of words with absolute timestamps (FIX 2)
+        safe_words = []
+        for w in (words or []):
+            safe_words.append({
+                "word": str(w.get("word", "")),
+                "abs_start": float(w.get("abs_start", w.get("start", 0.0))),
+                "abs_end": float(w.get("abs_end", w.get("end", 0.0))),
+                "start": float(w.get("start", 0.0)),
+                "end": float(w.get("end", 0.0)),
+                "confidence": float(w.get("confidence", 0.9)),
+            })
         for cache_name in [f"words_{video_id}.json", f"words_reel_{video_id}.json"]:
             try:
                 with open(CACHE_DIR / cache_name, "w", encoding="utf-8") as f:
-                    json.dump(words, f, ensure_ascii=False, indent=2)
+                    json.dump(safe_words, f, ensure_ascii=False, indent=2)
             except Exception:
                 pass
 
@@ -1382,49 +1366,46 @@ class FastModeAEngine:
                 extract_audio_segment(source_video_path, start_sec, duration, temp_wav)
                 whisper = get_whisper_model()
                 if whisper is not None and os.path.exists(temp_wav):
-                    asr_prompt = (
-                        "Hinglish coding lecture. Java ek case-sensitive language hai. "
-                        "Variable, identifier, function, class, object, method, String, int, boolean, array, "
-                        "boardPanel, ActionListener, JButton, GitHub, repository, VS Code, terminal, compile, error, output."
-                    )
-                    if getattr(self, "latest_scan_tokens", None):
-                        asr_prompt += " " + " ".join(self.latest_scan_tokens[:25])
-
                     segments, _ = whisper.transcribe(
                         temp_wav,
                         beam_size=1,
                         temperature=0.0,
                         word_timestamps=True,
-                        initial_prompt=asr_prompt,
+                        initial_prompt=None,
                         condition_on_previous_text=False,
                         vad_filter=True,
                         vad_parameters=dict(min_silence_duration_ms=350, speech_pad_ms=200),
+                        compression_ratio_threshold=2.2,
                         repetition_penalty=1.2,
+                        no_repeat_ngram_size=3,
+                        language=None,
                     )
                     for seg in segments:
                         if seg.words:
                             for w in seg.words:
                                 cw = w.word.strip()
                                 if cw:
-                                    abs_s = round(w.start + start_sec, 2)
-                                    abs_e = round(w.end + start_sec, 2)
+                                    abs_s = round(float(w.start or 0.0) + start_sec, 2)
+                                    abs_e = round(float(w.end or (w.start or 0.0) + 0.2) + start_sec, 2)
+                                    prob = getattr(w, "probability", None)
+                                    conf = round(float(prob), 2) if prob is not None else 0.9
                                     active_words.append({
                                         "word": cw,
                                         "abs_start": abs_s,
                                         "abs_end": abs_e,
-                                        "start": round(w.start, 2),
-                                        "end": round(w.end, 2),
-                                        "confidence": round(w.probability, 2),
+                                        "start": round(float(w.start or 0.0), 2),
+                                        "end": round(float(w.end or (w.start or 0.0) + 0.2), 2),
+                                        "confidence": conf,
                                     })
                         elif seg.text.strip():
-                            abs_s = round(seg.start + start_sec, 2)
-                            abs_e = round(seg.end + start_sec, 2)
+                            abs_s = round(float(seg.start or 0.0) + start_sec, 2)
+                            abs_e = round(float(seg.end or (seg.start or 0.0) + 0.5) + start_sec, 2)
                             active_words.append({
                                 "word": seg.text.strip(),
                                 "abs_start": abs_s,
                                 "abs_end": abs_e,
-                                "start": round(seg.start, 2),
-                                "end": round(seg.end, 2),
+                                "start": round(float(seg.start or 0.0), 2),
+                                "end": round(float(seg.end or (seg.start or 0.0) + 0.5), 2),
                                 "confidence": 0.9,
                             })
                     if active_words:
@@ -1447,10 +1428,20 @@ class FastModeAEngine:
                 "confidence": w.get("confidence", 0.9),
             })
 
-        # Save updated cache
+        # Save updated cache safely with primitive types
+        safe_shift = []
+        for w in (candidate_words or shift_words):
+            safe_shift.append({
+                "word": str(w.get("word", "")),
+                "abs_start": float(w.get("abs_start", w.get("start", 0.0))),
+                "abs_end": float(w.get("abs_end", w.get("end", 0.0))),
+                "start": float(w.get("start", 0.0)),
+                "end": float(w.get("end", 0.0)),
+                "confidence": float(w.get("confidence", 0.9)),
+            })
         try:
             with open(CACHE_DIR / f"words_{c_id}.json", "w", encoding="utf-8") as f:
-                json.dump(candidate_words or shift_words, f, ensure_ascii=False, indent=2)
+                json.dump(safe_shift, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 

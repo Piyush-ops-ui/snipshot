@@ -328,12 +328,12 @@ class FastNativeCompositor:
             raw_e = float(w.get("abs_end", rel_e))
 
             # Determine relative start/end within [0, duration]
-            if start_sec_val > 0.0 and raw_s >= start_sec_val:
-                w_start = raw_s - start_sec_val
-                w_end = raw_e - start_sec_val
-            elif 0.0 <= rel_s <= duration and rel_e > rel_s:
+            if 0.0 <= rel_s <= duration and rel_e >= rel_s:
                 w_start = rel_s
                 w_end = rel_e
+            elif start_sec_val > 0.0 and raw_s >= start_sec_val:
+                w_start = raw_s - start_sec_val
+                w_end = raw_e - start_sec_val
             elif start_sec_val > 0.0 and rel_s >= start_sec_val:
                 w_start = rel_s - start_sec_val
                 w_end = rel_e - start_sec_val
