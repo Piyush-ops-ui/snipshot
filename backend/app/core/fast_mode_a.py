@@ -289,6 +289,7 @@ UI_DIALOG_WORDS = {
 class FastModeAEngine:
     def __init__(self):
         self.compositor = FastNativeCompositor()
+        self.latest_scan_tokens: List[str] = []
 
     def _scan_best_window(self, video_path: str, total_duration: float) -> Tuple[float, float]:
         """
@@ -298,9 +299,26 @@ class FastModeAEngine:
         filters out project creation / welcome dialogs,
         and returns (start, duration) for the best 45-second teaching window.
         """
+        self.latest_scan_tokens = []
         ocr_engine = get_ocr_engine()
         if ocr_engine is None or total_duration <= 90.0:
-            # Short video: just skip first 5s of dead air
+            # Short video: sample a frame to collect on-screen tech tokens if possible
+            if ocr_engine is not None:
+                try:
+                    c = cv2.VideoCapture(video_path)
+                    c.set(cv2.CAP_PROP_POS_MSEC, min(5000.0, total_duration * 500.0))
+                    r, f = c.read()
+                    if r and f is not None:
+                        res, _ = ocr_engine(f)
+                        if res:
+                            for item in res:
+                                txt = str(item[1]).strip()
+                                if len(txt) >= 3 and not is_finder_ui_chrome(txt):
+                                    if txt not in self.latest_scan_tokens:
+                                        self.latest_scan_tokens.append(txt)
+                    c.release()
+                except Exception:
+                    pass
             start = min(5.0, total_duration * 0.05)
             dur = min(45.0, total_duration - start)
             return (start, dur)
@@ -331,6 +349,9 @@ class FastModeAEngine:
             if res:
                 for item in res:
                     text = str(item[1]).strip()
+                    if len(text) >= 3 and not is_finder_ui_chrome(text):
+                        if text not in self.latest_scan_tokens and len(self.latest_scan_tokens) < 40:
+                            self.latest_scan_tokens.append(text)
                     tokens = re.findall(r"[a-zA-Z_]\w*", text.lower())
                     for w in tokens:
                         if w in CODE_KEYWORDS:
@@ -571,10 +592,18 @@ class FastModeAEngine:
         wav_path = str(CACHE_DIR / f"audio_{video_id}.wav")
         extract_audio_segment(video_path, scan_start, scan_duration, wav_path)
 
-        # 3. Whisper ASR (Auto-detects Hindi, Hinglish, English, etc.)
+        # 3. Whisper ASR with Screen-Grounded Prompt & Tight VAD (FIX 4)
         whisper = get_whisper_model()
         words: List[Dict[str, Any]] = []
         transcript_text = ""
+
+        asr_prompt = (
+            "Hinglish coding lecture. Java ek case-sensitive language hai. "
+            "Variable, identifier, function, class, object, method, String, int, boolean, array, "
+            "boardPanel, ActionListener, JButton, GitHub, repository, VS Code, terminal, compile, error, output."
+        )
+        if getattr(self, "latest_scan_tokens", None):
+            asr_prompt += " " + " ".join(self.latest_scan_tokens[:25])
 
         if whisper is not None and os.path.exists(wav_path):
             try:
@@ -584,16 +613,16 @@ class FastModeAEngine:
                     best_of=1,
                     temperature=0.0,
                     word_timestamps=True,
-                    initial_prompt="Technical programming tutorial in Hinglish covering Python, Java, Swing, VS Code, terminal, GitHub, and source code.",
+                    initial_prompt=asr_prompt,
                     condition_on_previous_text=False,
                     vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+                    vad_parameters=dict(min_silence_duration_ms=350, speech_pad_ms=200),
                     compression_ratio_threshold=2.2,
                     repetition_penalty=1.2,
                     no_repeat_ngram_size=3,
                     language=None,
                 )
-                # If auto-detected language is not English or Hindi (e.g. Whisper hallucinating on background silence), re-transcribe with language='en'
+                # If auto-detected language is not English or Hindi, re-transcribe with language='en'
                 if info.language not in ('en', 'hi'):
                     segments, info = whisper.transcribe(
                         wav_path,
@@ -601,10 +630,10 @@ class FastModeAEngine:
                         best_of=1,
                         temperature=0.0,
                         word_timestamps=True,
-                        initial_prompt="Technical programming tutorial in Hinglish covering Python, Java, Swing, VS Code, terminal, GitHub, and source code.",
+                        initial_prompt=asr_prompt,
                         condition_on_previous_text=False,
                         vad_filter=True,
-                        vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+                        vad_parameters=dict(min_silence_duration_ms=350, speech_pad_ms=200),
                         compression_ratio_threshold=2.2,
                         repetition_penalty=1.2,
                         no_repeat_ngram_size=3,
@@ -616,53 +645,81 @@ class FastModeAEngine:
                         for w in seg.words:
                             clean_w = w.word.strip()
                             if clean_w:
+                                abs_s = round(w.start + scan_start, 2)
+                                abs_e = round(w.end + scan_start, 2)
                                 words.append({
                                     "word": clean_w,
-                                    "start": round(w.start + scan_start, 2),
-                                    "end": round(w.end + scan_start, 2),
+                                    "abs_start": abs_s,
+                                    "abs_end": abs_e,
+                                    "start": abs_s,
+                                    "end": abs_e,
                                     "confidence": round(w.probability, 2),
                                     "probability": round(w.probability, 2),
                                 })
                     elif cleaned_seg_text:
+                        abs_s = round(seg.start + scan_start, 2)
+                        abs_e = round(seg.end + scan_start, 2)
                         words.append({
                             "word": cleaned_seg_text,
-                            "start": round(seg.start + scan_start, 2),
-                            "end": round(seg.end + scan_start, 2),
+                            "abs_start": abs_s,
+                            "abs_end": abs_e,
+                            "start": abs_s,
+                            "end": abs_e,
                             "confidence": 0.9,
                             "probability": 0.9,
                         })
                 # Clean words, transliterate Hindi Devanagari to Latin, and remove hallucinated repetition loops
-                words = normalize_word_timestamps(words)
-                words = clean_hinglish_with_ocr(words)
-                transcript_text = normalize_to_hinglish(" ".join([w["word"] for w in words]))
-                transcript_text = clean_hinglish_with_ocr(transcript_text)
+                screen_text_list = getattr(self, "latest_scan_tokens", []) + TECH_DICTIONARY
+                words = normalize_word_timestamps(words, screen_tokens=screen_text_list)
+                words = clean_hinglish_with_ocr(words, screen_tokens=screen_text_list)
+                transcript_text = normalize_to_hinglish(" ".join([w["word"] for w in words]), screen_tokens=screen_text_list)
+                transcript_text = clean_hinglish_with_ocr(transcript_text, screen_tokens=screen_text_list)
             except Exception:
                 pass
 
-        # 4. Highlight Span Selection (Dynamic boundary selection, min 28s duration)
+        # 4. Highlight Span Selection & Speech Onset Snapping (FIX 3)
         clip_start = scan_start
         clip_end = min(total_duration, scan_start + target_clip_duration)
-        if words:
-            # Snap start to first spoken word in the scanned window so clip begins right with speech
-            spoken_words = [w for w in words if w["start"] >= scan_start]
-            if spoken_words:
-                clip_start = max(scan_start, spoken_words[0]["start"] - 0.2)
-            elif words[0]["start"] >= 0.0:
-                clip_start = max(0.0, words[0]["start"] - 0.2)
+        valid_words = [w for w in words if w.get("word") and len(w["word"].strip()) > 0]
+        if valid_words:
+            first_speech_sec = float(valid_words[0].get("abs_start", valid_words[0]["start"]))
+            last_speech_sec = float(valid_words[-1].get("abs_end", valid_words[-1]["end"]))
 
-            # Find best sentence boundary ending near target_clip_duration
-            for w in words:
-                if w["start"] >= clip_start + 28.0:
-                    if w["word"].endswith((".", "!", "?", "।")) or (w["end"] - w["start"] >= 0.35):
-                        clip_end = w["end"]
-                        break
-            if clip_end - clip_start < 28.0:
-                clip_end = min(total_duration, clip_start + max(30.0, target_clip_duration))
+            # Eliminate initial dead silence / intro music / noise gap (> 1.0s)
+            if first_speech_sec - clip_start > 1.0:
+                clip_start = max(0.0, first_speech_sec - 0.3)
+                clip_end = min(total_duration, max(clip_start + 15.0, min(clip_start + 55.0, last_speech_sec + 0.5)))
+            else:
+                clip_start = max(0.0, first_speech_sec - 0.2)
+                for w in valid_words:
+                    w_s = float(w.get("abs_start", w["start"]))
+                    w_e = float(w.get("abs_end", w["end"]))
+                    if w_s >= clip_start + 28.0:
+                        if w["word"].endswith((".", "!", "?", "।")) or (w_e - w_s >= 0.35):
+                            clip_end = w_e
+                            break
+                if clip_end - clip_start < 28.0:
+                    clip_end = min(total_duration, clip_start + max(30.0, target_clip_duration))
 
         clip_duration = max(5.0, clip_end - clip_start)
-        clip_words = [w for w in words if clip_start <= w["start"] <= clip_end + 0.5]
-        if not clip_words and words:
-            clip_words = words
+
+        # Slice words for this clip and compute relative word timestamps (FIX 3)
+        raw_clip_words = [w for w in words if clip_start <= float(w.get("abs_start", w["start"])) <= clip_end + 0.5]
+        if not raw_clip_words and words:
+            raw_clip_words = words
+
+        clip_words = []
+        for w in raw_clip_words:
+            w_abs_s = float(w.get("abs_start", w["start"]))
+            w_abs_e = float(w.get("abs_end", w["end"]))
+            clip_words.append({
+                "word": w["word"],
+                "abs_start": round(w_abs_s, 2),
+                "abs_end": round(w_abs_e, 2),
+                "start": max(0.0, round(w_abs_s - clip_start, 2)),
+                "end": max(0.1, round(w_abs_e - clip_start, 2)),
+                "confidence": w.get("confidence", 0.9),
+            })
 
         # 5. Sample ONLY 4 frames inside [clip_start, clip_end] for OCR & motion detection
         cap = cv2.VideoCapture(video_path)
@@ -1017,6 +1074,14 @@ class FastModeAEngine:
             output_mp4_path=output_mp4,
         )
 
+        # Cache full list of words with absolute timestamps (FIX 2)
+        for cache_name in [f"words_{video_id}.json", f"words_reel_{video_id}.json"]:
+            try:
+                with open(CACHE_DIR / cache_name, "w", encoding="utf-8") as f:
+                    json.dump(words, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
         hashtags = growth_pack["hashtags"]
         elapsed = round(time.time() - t_start, 2)
 
@@ -1024,13 +1089,14 @@ class FastModeAEngine:
             "status": "success",
             "video_id": video_id,
             "clip_id": f"reel_{video_id}",
-            "video_url": f"/outputs/reel_{video_id}.mp4",
+            "video_url": f"/outputs/reel_{video_id}.mp4?t={int(time.time())}",
             "source_video_path": video_path,
             "start_sec": round(clip_start, 2),
             "end_sec": round(clip_end, 2),
             "duration": round(clip_duration, 2),
             "transcript": transcript_text,
             "words": clip_words,
+            "transcript_words": words,
             "repaired_terms": repaired_terms,
             "code_snippet": code_snippet,
             "hashtags": hashtags[:6],
@@ -1063,6 +1129,7 @@ class FastModeAEngine:
     ) -> Dict[str, Any]:
         """
         Re-renders clip with updated trim sliders, templates, blur, and code snippet in < 3 seconds!
+        Persists and re-slices transcript words without dummy placeholders (FIX 2).
         """
         t_start = time.time()
         c_id = clip_id or uuid.uuid4().hex[:8]
@@ -1095,8 +1162,115 @@ class FastModeAEngine:
             output_path=overlay_png,
         )
 
+        # 1. Recover candidate words from parameter or cache file (FIX 2)
+        candidate_words: List[Dict[str, Any]] = []
+        if words and isinstance(words, list) and len(words) > 0:
+            candidate_words = words
+        else:
+            clean_c_id = c_id.replace("reel_", "")
+            for c_cand in [
+                CACHE_DIR / f"words_{c_id}.json",
+                CACHE_DIR / f"words_reel_{c_id}.json",
+                CACHE_DIR / f"words_{clean_c_id}.json",
+                CACHE_DIR / f"words_reel_{clean_c_id}.json",
+            ]:
+                if c_cand.exists():
+                    try:
+                        with open(c_cand, "r", encoding="utf-8") as f:
+                            candidate_words = json.load(f)
+                        if candidate_words:
+                            break
+                    except Exception:
+                        pass
+
+        # 2. Filter words falling in [start_sec, end_sec]
+        active_words = [
+            w for w in candidate_words
+            if start_sec - 0.2 <= float(w.get("abs_start", w.get("start", 0.0))) <= end_sec + 0.5
+        ]
+
+        # 3. If no words cover this range, run on-demand fast Whisper slice (< 1.2s)!
+        if not active_words and os.path.exists(source_video_path):
+            temp_wav = str(CACHE_DIR / f"audio_rerender_{c_id}.wav")
+            try:
+                extract_audio_segment(source_video_path, start_sec, duration, temp_wav)
+                whisper = get_whisper_model()
+                if whisper is not None and os.path.exists(temp_wav):
+                    asr_prompt = (
+                        "Hinglish coding lecture. Java ek case-sensitive language hai. "
+                        "Variable, identifier, function, class, object, method, String, int, boolean, array, "
+                        "boardPanel, ActionListener, JButton, GitHub, repository, VS Code, terminal, compile, error, output."
+                    )
+                    if getattr(self, "latest_scan_tokens", None):
+                        asr_prompt += " " + " ".join(self.latest_scan_tokens[:25])
+
+                    segments, _ = whisper.transcribe(
+                        temp_wav,
+                        beam_size=1,
+                        temperature=0.0,
+                        word_timestamps=True,
+                        initial_prompt=asr_prompt,
+                        condition_on_previous_text=False,
+                        vad_filter=True,
+                        vad_parameters=dict(min_silence_duration_ms=350, speech_pad_ms=200),
+                        repetition_penalty=1.2,
+                    )
+                    for seg in segments:
+                        if seg.words:
+                            for w in seg.words:
+                                cw = w.word.strip()
+                                if cw:
+                                    abs_s = round(w.start + start_sec, 2)
+                                    abs_e = round(w.end + start_sec, 2)
+                                    active_words.append({
+                                        "word": cw,
+                                        "abs_start": abs_s,
+                                        "abs_end": abs_e,
+                                        "start": round(w.start, 2),
+                                        "end": round(w.end, 2),
+                                        "confidence": round(w.probability, 2),
+                                    })
+                        elif seg.text.strip():
+                            abs_s = round(seg.start + start_sec, 2)
+                            abs_e = round(seg.end + start_sec, 2)
+                            active_words.append({
+                                "word": seg.text.strip(),
+                                "abs_start": abs_s,
+                                "abs_end": abs_e,
+                                "start": round(seg.start, 2),
+                                "end": round(seg.end, 2),
+                                "confidence": 0.9,
+                            })
+                    if active_words:
+                        active_words = normalize_word_timestamps(active_words)
+                        active_words = clean_hinglish_with_ocr(active_words)
+            except Exception:
+                pass
+
+        # 4. Compute relative word timestamps for subtitle burning
+        shift_words = []
+        for w in active_words:
+            w_abs_s = float(w.get("abs_start", w.get("start", 0.0)))
+            w_abs_e = float(w.get("abs_end", w.get("end", 0.0)))
+            shift_words.append({
+                "word": w["word"],
+                "abs_start": round(w_abs_s, 2),
+                "abs_end": round(w_abs_e, 2),
+                "start": max(0.0, round(w_abs_s - start_sec, 2)),
+                "end": max(0.1, round(w_abs_e - start_sec, 2)),
+                "confidence": w.get("confidence", 0.9),
+            })
+
+        # Save updated cache
+        try:
+            with open(CACHE_DIR / f"words_{c_id}.json", "w", encoding="utf-8") as f:
+                json.dump(candidate_words or shift_words, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
         subs_ass = str(CACHE_DIR / f"subs_re_{c_id}.ass")
-        norm_words = normalize_word_timestamps(words or []) if words else []
+        norm_words = normalize_word_timestamps(shift_words) if shift_words else []
+        norm_words = clean_hinglish_with_ocr(norm_words) if norm_words else []
         self.compositor.generate_ass_subtitles(
             words=norm_words,
             start_sec=start_sec,
@@ -1127,6 +1301,8 @@ class FastModeAEngine:
             "end_sec": end_sec,
             "duration": round(duration, 2),
             "code_snippet": formatted_snippet,
+            "words": shift_words,
+            "transcript_words": shift_words,
             "template_archetype": template_archetype,
             "layout_mode": layout_mode,
             "safe_cohort_blur": safe_cohort_blur,

@@ -38,6 +38,7 @@ class RerenderClipRequest(BaseModel):
     code_snippet: Optional[str] = None
     code_card: Optional[str] = None
     brand_kit: Optional[Union[str, Dict[str, Any]]] = None
+    words: Optional[List[Dict[str, Any]]] = None
     transcript_words: Optional[List[Dict[str, Any]]] = None
     template_archetype: Optional[str] = "standard_spotlight"
     layout_mode: Optional[str] = "single_focus"
@@ -186,6 +187,8 @@ async def process_video(
         "start_sec": result["start_sec"],
         "end_sec": result["end_sec"],
         "transcript": result["transcript"],
+        "words": result.get("words", []),
+        "transcript_words": result.get("transcript_words", []),
         "repaired_terms": result["repaired_terms"],
         "code_snippet": result["code_snippet"],
         "hashtags": result["hashtags"],
@@ -250,7 +253,7 @@ async def rerender_clip(
             code_snippet=code_snippet,
             institute_name=parsed_brand_kit.name,
             brand_color=parsed_brand_kit.primary_color,
-            words=payload.transcript_words,
+            words=payload.words or payload.transcript_words,
             clip_id=clip_id,
             template_archetype=template_archetype,
             layout_mode=layout_mode,
@@ -268,6 +271,8 @@ async def rerender_clip(
             "end_sec": res["end_sec"],
             "duration": res["duration"],
             "code_snippet": res["code_snippet"],
+            "words": res.get("words", []),
+            "transcript_words": res.get("transcript_words", []),
             "template_archetype": template_archetype,
             "layout_mode": layout_mode,
             "safe_cohort_blur": safe_cohort_blur,

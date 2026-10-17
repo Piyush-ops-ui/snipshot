@@ -295,8 +295,25 @@ class FastNativeCompositor:
 
         clean_words = []
         for w in (words or []):
-            w_start = float(w.get("start", 0.0)) - start_sec
-            w_end = float(w.get("end", 0.0)) - start_sec
+            rel_s = float(w.get("start", 0.0))
+            rel_e = float(w.get("end", 0.0))
+            raw_s = float(w.get("abs_start", rel_s))
+            raw_e = float(w.get("abs_end", rel_e))
+
+            # Determine relative start/end within [0, duration]
+            if start_sec > 0.0 and raw_s >= start_sec:
+                w_start = raw_s - start_sec
+                w_end = raw_e - start_sec
+            elif 0.0 <= rel_s <= duration and rel_e > rel_s:
+                w_start = rel_s
+                w_end = rel_e
+            elif start_sec > 0.0 and rel_s >= start_sec:
+                w_start = rel_s - start_sec
+                w_end = rel_e - start_sec
+            else:
+                w_start = rel_s
+                w_end = rel_e
+
             if w_end < 0.0 or w_start > duration:
                 continue
             word_str = sanitize_for_render(str(w.get("word", "")).strip())
@@ -349,20 +366,11 @@ class FastNativeCompositor:
         if cur_chunk:
             chunks.append(cur_chunk)
 
-        # Rhythmic visual cue fallback if no words were detected
-        if not chunks and duration > 0.5:
-            step = 2.5
-            t = 0.0
-            while t < duration:
-                t_end = min(duration, t + step)
-                chunks.append([
-                    {"word": "Code", "start": t, "end": t + 0.5},
-                    {"word": "highlight", "start": t + 0.5, "end": t + 1.0},
-                    {"word": "and", "start": t + 1.0, "end": t + 1.4},
-                    {"word": "explanation", "start": t + 1.4, "end": t + 1.9},
-                    {"word": "walkthrough", "start": t + 1.9, "end": t_end},
-                ])
-                t = t_end
+        if not chunks:
+            # Clean subtitle file with zero dialogue lines when no words are detected - never synthesize fake placeholders!
+            import logging
+            logging.getLogger(__name__).warning("No speech words detected for ASS subtitles; generating clean subtitle file with 0 dialogue lines.")
+
 
         ass_content = f"""[Script Info]
 Title: SnipShot Fast Karaoke Subtitles

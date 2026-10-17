@@ -77,6 +77,59 @@ TECH_TERMS_MAP = {
     'gitadab': 'GitHub', 'getap': 'GitHub', 'getaf': 'GitHub',
     'desattakh': 'Desktop', 'dhamd': 'download', 'krid': 'create',
     'kom': 'com', 'dodf': 'dot', 'akhaunt': 'account', 'akhauntk': 'account',
+    # Technical compound terms and phonetic mishearings in programming lectures
+    'ke ssitrig lnbaj': 'case-sensitive language',
+    'ssitrig lnbaj': 'case-sensitive language',
+    'ke ssitrig': 'case-sensitive',
+    'ssitrig': 'case-sensitive',
+    'lnbaj': 'language',
+    'bhada p': 'bada P',
+    'bada p': 'bada P',
+    'mul pi': 'variable',
+    'kes sentetiv': 'case-sensitive',
+    'kes sentativ': 'case-sensitive',
+    'kes sensetiv': 'case-sensitive',
+    'kes sensitiv': 'case-sensitive',
+    'case sentetiv': 'case-sensitive',
+    'case sentativ': 'case-sensitive',
+    'case sensetiv': 'case-sensitive',
+    'case sensitiv': 'case-sensitive',
+    'case sensitive': 'case-sensitive',
+    'case sensitive language': 'case-sensitive language',
+    'variebal': 'variable',
+    'veriabal': 'variable',
+    'aktian lisnar': 'ActionListener',
+    'ekshan lisnar': 'ActionListener',
+    'ekshan': 'action',
+    'lisnar': 'listener',
+    'jebatan': 'JButton',
+    'je batan': 'JButton',
+    'bord panel': 'boardPanel',
+    'bord': 'board',
+    'meynthad': 'method',
+    'konstraktar': 'constructor',
+    'inharitens': 'inheritance',
+    'polimorfizm': 'polymorphism',
+    'intarfes': 'interface',
+    'pekaj': 'package',
+    'pablik statik void men': 'public static void main',
+    'pablik statik void': 'public static void',
+    'statik void men': 'static void main',
+    'pablik': 'public',
+    'statik': 'static',
+    'void': 'void',
+    'men': 'main',
+    'systam': 'System',
+    'printalan': 'println',
+    'awtput': 'output',
+    'autput': 'output',
+    'kompayl': 'compile',
+    'kampayl': 'compile',
+    'eror': 'error',
+    'sintaks': 'syntax',
+    'rantaym': 'runtime',
+    'eksepshan': 'exception',
+    'eksaption': 'exception',
 }
 
 DEFAULT_TUTORIAL_SCREEN_TOKENS = [
@@ -315,30 +368,74 @@ def clean_hinglish_with_ocr(
             item = deduped_words[i]
             raw_w = item.get("word", "").strip()
 
-            # Check 2-word phrase lookup (e.g. 'rip gethaph' -> 'sample-repo / GitHub', 'vias kod' -> 'VS Code')
+            # 1. Check 3-word compound phrase lookup (e.g. 'ke ssitrig lnbaj' -> 'case-sensitive language', 'pablik statik void' -> 'public static void')
+            if i + 2 < n:
+                item2 = deduped_words[i + 1]
+                item3 = deduped_words[i + 2]
+                triplet_raw = f"{raw_w} {item2.get('word', '').strip()} {item3.get('word', '').strip()}".lower()
+                triplet_target = None
+                if triplet_raw in TECH_TERMS_MAP:
+                    triplet_target = TECH_TERMS_MAP[triplet_raw]
+                elif triplet_raw in screen_lookup:
+                    triplet_target = screen_lookup[triplet_raw]
+
+                if triplet_target:
+                    t_start = item.get("start", 0.0)
+                    t_end = item3.get("end", 0.0)
+                    abs_s = item.get("abs_start", t_start)
+                    abs_e = item3.get("abs_end", t_end)
+                    sub_words = triplet_target.split()
+                    sub_dt = (t_end - t_start) / max(1, len(sub_words))
+                    sub_abs_dt = (abs_e - abs_s) / max(1, len(sub_words))
+                    for s_idx, s_w in enumerate(sub_words):
+                        repaired_list.append({
+                            "word": s_w,
+                            "start": round(t_start + s_idx * sub_dt, 2),
+                            "end": round(t_start + (s_idx + 1) * sub_dt, 2),
+                            "abs_start": round(abs_s + s_idx * sub_abs_dt, 2),
+                            "abs_end": round(abs_s + (s_idx + 1) * sub_abs_dt, 2),
+                            "confidence": 0.98,
+                        })
+                    i += 3
+                    continue
+
+            # 2. Check 2-word phrase lookup (e.g. 'rip gethaph' -> 'sample-repo / GitHub', 'vias kod' -> 'VS Code', 'bhada p' -> 'bada P')
             if i + 1 < n:
                 next_item = deduped_words[i + 1]
                 pair_raw = f"{raw_w} {next_item.get('word', '').strip()}".lower()
+                pair_target = None
                 if pair_raw in TECH_TERMS_MAP:
-                    repaired_list.append({
-                        "word": TECH_TERMS_MAP[pair_raw],
-                        "start": item.get("start", 0.0),
-                        "end": next_item.get("end", 0.0),
-                        "confidence": max(item.get("confidence", 0.9), next_item.get("confidence", 0.9)),
-                    })
-                    i += 2
-                    continue
-                if pair_raw in screen_lookup:
-                    repaired_list.append({
-                        "word": screen_lookup[pair_raw],
-                        "start": item.get("start", 0.0),
-                        "end": next_item.get("end", 0.0),
-                        "confidence": max(item.get("confidence", 0.9), next_item.get("confidence", 0.9)),
-                    })
+                    pair_target = TECH_TERMS_MAP[pair_raw]
+                elif pair_raw in screen_lookup:
+                    pair_target = screen_lookup[pair_raw]
+                elif have_fuzz and fuzz is not None:
+                    # Fuzzy match against compound keys
+                    for cand in ["case-sensitive language", "case-sensitive", "ActionListener", "boardPanel", "GitHub Desktop"]:
+                        if fuzz.ratio(pair_raw, cand.lower()) >= 78:
+                            pair_target = cand
+                            break
+
+                if pair_target:
+                    t_start = item.get("start", 0.0)
+                    t_end = next_item.get("end", 0.0)
+                    abs_s = item.get("abs_start", t_start)
+                    abs_e = next_item.get("abs_end", t_end)
+                    sub_words = pair_target.split()
+                    sub_dt = (t_end - t_start) / max(1, len(sub_words))
+                    sub_abs_dt = (abs_e - abs_s) / max(1, len(sub_words))
+                    for s_idx, s_w in enumerate(sub_words):
+                        repaired_list.append({
+                            "word": s_w,
+                            "start": round(t_start + s_idx * sub_dt, 2),
+                            "end": round(t_start + (s_idx + 1) * sub_dt, 2),
+                            "abs_start": round(abs_s + s_idx * sub_abs_dt, 2),
+                            "abs_end": round(abs_s + (s_idx + 1) * sub_abs_dt, 2),
+                            "confidence": 0.98,
+                        })
                     i += 2
                     continue
 
-            # Single word lookup
+            # 3. Single word lookup
             prefix = ""
             suffix = ""
             w_core = raw_w
@@ -373,12 +470,17 @@ def clean_hinglish_with_ocr(
                 else:
                     final_w = w_core
 
-            repaired_list.append({
+            single_entry = {
                 "word": prefix + final_w + suffix,
                 "start": item.get("start", 0.0),
                 "end": item.get("end", 0.0),
                 "confidence": item.get("confidence", 0.9),
-            })
+            }
+            if "abs_start" in item:
+                single_entry["abs_start"] = item["abs_start"]
+            if "abs_end" in item:
+                single_entry["abs_end"] = item["abs_end"]
+            repaired_list.append(single_entry)
             i += 1
 
         return deduplicate_word_items(repaired_list)
@@ -503,12 +605,17 @@ def normalize_word_timestamps(
             continue
         prev_word = final_word
 
-        normalized_list.append({
+        entry = {
             "word": final_word,
             "start": item.get("start", 0.0),
             "end": item.get("end", 0.0),
             "confidence": item.get("confidence", 0.9),
-        })
+        }
+        if "abs_start" in item:
+            entry["abs_start"] = item["abs_start"]
+        if "abs_end" in item:
+            entry["abs_end"] = item["abs_end"]
+        normalized_list.append(entry)
 
     return clean_hinglish_with_ocr(normalized_list, screen_tokens=screen_tokens)
 

@@ -58,6 +58,8 @@ interface ClipData {
   end_sec: number;
   duration: number;
   transcript: string;
+  words?: any[];
+  transcript_words?: any[];
   repaired_terms: RepairedTerm[];
   code_snippet: string;
   hashtags: string[];
@@ -259,6 +261,8 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
         end_sec: data.end_sec || 30,
         duration: data.duration_seconds || 30,
         transcript: data.transcript || '',
+        words: data.words || [],
+        transcript_words: data.transcript_words || data.words || [],
         repaired_terms: finalRepairs,
         code_snippet: extractedCode,
         hashtags: data.hashtags || ['#coding', '#tech', '#softwareengineering'],
@@ -302,6 +306,8 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
           start_sec: Number(trimStart),
           end_sec: Number(trimEnd),
           code_snippet: editableCode,
+          words: clip.transcript_words || clip.words || [],
+          transcript_words: clip.transcript_words || clip.words || [],
           template_archetype: templateArchetype,
           layout_mode: 'split_stage',
           silent_typing_hyperlapse: silentTypingHyperlapse,
@@ -327,6 +333,8 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
               end_sec: res.end_sec,
               duration: res.duration,
               code_snippet: res.code_snippet,
+              words: res.words || prev.words,
+              transcript_words: res.transcript_words || res.words || prev.transcript_words,
             }
           : null
       );
@@ -563,16 +571,17 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
               {/* Real 9:16 HTML5 Video Player */}
               <div className="w-[300px] aspect-[9/16] rounded-xl overflow-hidden bg-black border border-slate-200 shadow relative group">
                 <video
-                  key={`${clip.video_url}?${cacheBuster}`}
+                  key={`${clip.video_url}?t=${cacheBuster}`}
                   controls
-                  src={`http://localhost:8000${clip.video_url}`}
+                  playsInline
+                  src={`http://localhost:8000${clip.video_url}${clip.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
                   className="w-full h-full object-cover"
                 />
               </div>
 
               {/* Download MP4 Button */}
               <a
-                href={`http://localhost:8000${clip.video_url}`}
+                href={`http://localhost:8000${clip.video_url}${clip.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
                 download={`snipshot_reel_${clip.clip_id}.mp4`}
                 target="_blank"
                 rel="noreferrer"
