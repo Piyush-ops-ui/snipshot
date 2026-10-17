@@ -33,6 +33,9 @@ ENV/
 node_modules/
 frontend/dist/
 frontend/node_modules/
+dist_space/
+frontend/public/outputs/
+frontend/public/samples/
 .npm
 npm-debug.log*
 yarn-debug.log*

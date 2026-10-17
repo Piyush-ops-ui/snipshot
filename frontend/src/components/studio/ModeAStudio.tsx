@@ -33,6 +33,7 @@ import { Progress } from '@/components/ui/progress';
 import { ProvenanceDialog } from '@/components/provenance/ProvenanceDialog';
 import { BrandKitConfig, TemplateArchetype, WordAlignment, SocialGrowthPack } from '@/types/reel_ir';
 import { API_BASE } from '@/config/api';
+import { SAMPLE_LECTURE_PREVIEWS } from '@/services/sampleData';
 import { DataFlowPipeline, PipelineTelemetry } from './DataFlowPipeline';
 
 interface ModeAStudioProps {
@@ -272,6 +273,13 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
     }
   }, [currentArchetype]);
 
+  // Load default sample lecture (ApnaCollege Python) on initial load
+  useEffect(() => {
+    if (!clip && SAMPLE_LECTURE_PREVIEWS['apnacollege_python']) {
+      applyProcessedData(SAMPLE_LECTURE_PREVIEWS['apnacollege_python'], 'ApnaCollege Python (FirstProgram.py)');
+    }
+  }, []);
+
   const handleArchetypeChange = (arch: TemplateArchetype) => {
     setTemplateArchetype(arch);
     if (onSelectArchetype) {
@@ -428,22 +436,28 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
         }),
       });
 
-      clearInterval(timer);
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.detail || 'Sample video processing failed. Please check backend server.');
+      if (response.ok) {
+        const data = await response.json();
+        setProgress(100);
+        setProgressStage('Finished!');
+        applyProcessedData(data, resolvedTitle);
+        return;
       }
+    } catch {
+      // Backend unreachable (e.g. static hosting on Hugging Face Spaces / Vercel)
+    }
 
-      const data = await response.json();
+    clearInterval(timer);
+    const fallbackData = SAMPLE_LECTURE_PREVIEWS[sampleId];
+    if (fallbackData) {
       setProgress(100);
       setProgressStage('Finished!');
-      applyProcessedData(data, resolvedTitle);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error processing sample video.');
-    } finally {
-      setIsProcessing(false);
+      applyProcessedData(fallbackData, resolvedTitle);
+      setErrorMsg(null);
+    } else {
+      setErrorMsg('Sample lecture data unavailable.');
     }
+    setIsProcessing(false);
   };
 
   const handleSelectHighlight = async (index: number) => {

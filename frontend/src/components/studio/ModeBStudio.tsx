@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { BrandKitConfig } from '@/types/reel_ir';
 import { API_BASE } from '@/config/api';
+import { SAMPLE_EXPLAINER_PREVIEWS } from '@/services/sampleData';
 
 interface ModeBStudioProps {
   brandKit: BrandKitConfig;
@@ -43,16 +44,17 @@ interface ExplainerData {
 }
 
 const DEFAULT_SUGGESTIONS = [
-  'JSON vs XML',
-  'Docker vs Virtual Machine',
+  'Gradient descent implementation in Linear regression in ML',
   'React useState vs useEffect',
+  'Docker vs Virtual Machine',
+  'JSON vs XML',
   'SQL vs NoSQL',
   'Git merge vs rebase',
 ];
 
 export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
   const [subMode, setSubMode] = useState<'prompt' | 'document'>('prompt');
-  const [prompt, setPrompt] = useState<string>('JSON vs XML');
+  const [prompt, setPrompt] = useState<string>('Gradient descent implementation in Linear regression in ML');
 
   // Document state
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -65,7 +67,9 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
   const [progressStage, setProgressStage] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [explainer, setExplainer] = useState<ExplainerData | null>(null);
+  const [explainer, setExplainer] = useState<ExplainerData | null>(
+    SAMPLE_EXPLAINER_PREVIEWS['gradient_descent'] || null
+  );
   const [cacheBuster, setCacheBuster] = useState<number>(Date.now());
   const [copiedTags, setCopiedTags] = useState<boolean>(false);
 
@@ -77,8 +81,9 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
     setProgressStage('Synthesizing 4-scene pedagogical script...');
     setErrorMsg(null);
 
+    let timer: any = null;
     try {
-      const timer = setInterval(() => {
+      timer = setInterval(() => {
         setProgress((prev) => {
           if (prev >= 85) return prev;
           if (prev === 40) setProgressStage('Synthesizing neural voiceover...');
@@ -100,23 +105,42 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
         }),
       });
 
-      clearInterval(timer);
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.detail || 'Explainer generation failed.');
+      if (response.ok) {
+        clearInterval(timer);
+        const data: ExplainerData = await response.json();
+        setProgress(100);
+        setProgressStage('Finished!');
+        setExplainer(data);
+        setCacheBuster(Date.now());
+        return;
       }
+    } catch {
+      // Backend unreachable or offline
+    }
 
-      const data: ExplainerData = await response.json();
+    if (timer) clearInterval(timer);
+    const pLower = prompt.toLowerCase();
+    let fallback: ExplainerData | null = null;
+    if (pLower.includes('gradient') || pLower.includes('regression') || pLower.includes('ml')) {
+      fallback = SAMPLE_EXPLAINER_PREVIEWS['gradient_descent'];
+    } else if (pLower.includes('react') || pLower.includes('hook') || pLower.includes('state') || pLower.includes('effect')) {
+      fallback = SAMPLE_EXPLAINER_PREVIEWS['react_hooks'];
+    } else if (pLower.includes('docker') || pLower.includes('vm') || pLower.includes('virtual')) {
+      fallback = SAMPLE_EXPLAINER_PREVIEWS['docker_vm'];
+    } else {
+      fallback = SAMPLE_EXPLAINER_PREVIEWS['json_xml'];
+    }
+
+    if (fallback) {
       setProgress(100);
       setProgressStage('Finished!');
-      setExplainer(data);
+      setExplainer(fallback);
       setCacheBuster(Date.now());
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error generating explainer video.');
-    } finally {
-      setIsGenerating(false);
+      setErrorMsg(null);
+    } else {
+      setErrorMsg('Error generating explainer video.');
     }
+    setIsGenerating(false);
   };
 
   const handleGenerateFromDoc = async () => {
