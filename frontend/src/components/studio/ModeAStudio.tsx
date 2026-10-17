@@ -258,6 +258,7 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
       JSON.stringify({
         name: brandKit.name || 'TechSummit Academy',
         primary_color: brandKit.primary_color || '#4F46E5',
+        logo_base64: brandKit.logo_base64 || brandKit.logo_path,
       })
     );
 
@@ -393,6 +394,7 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
           brand_kit: {
             name: brandKit.name,
             primary_color: brandKit.primary_color,
+            logo_base64: brandKit.logo_base64 || brandKit.logo_path,
           },
         }),
       });

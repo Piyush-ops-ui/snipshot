@@ -57,17 +57,24 @@ async def generate_explainer(request: GenerateExplainerRequest):
     # Resolve Brand Kit
     institute_name = "SNIPSHOT ACADEMY"
     brand_color = "#4F46E5"
+    logo_base64 = None
 
     if request.brand_kit:
         institute_name = request.brand_kit.name or institute_name
         brand_color = request.brand_kit.primary_color or brand_color
+        logo_base64 = getattr(request.brand_kit, "logo_base64", None) or getattr(request.brand_kit, "logo_path", None)
 
     try:
-        result = fast_b_engine.generate_explainer(
-            prompt=request.prompt,
-            institute_name=institute_name,
-            brand_color=brand_color,
-        )
+        import inspect
+        kwargs = {
+            "prompt": request.prompt,
+            "institute_name": institute_name,
+            "brand_color": brand_color,
+        }
+        sig = inspect.signature(fast_b_engine.generate_explainer)
+        if "logo_base64" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            kwargs["logo_base64"] = logo_base64
+        result = fast_b_engine.generate_explainer(**kwargs)
         return GenerateExplainerResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate explainer video: {str(e)}")
@@ -104,12 +111,17 @@ async def generate_from_doc(
     parsed_brand_kit = parse_brand_kit_input(brand_kit)
 
     try:
-        result = fast_b_engine.generate_explainer_from_document(
-            file_path=str(doc_save_path),
-            topic_focus=topic_focus,
-            institute_name=parsed_brand_kit.name,
-            brand_color=parsed_brand_kit.primary_color,
-        )
+        import inspect
+        kwargs = {
+            "file_path": str(doc_save_path),
+            "topic_focus": topic_focus,
+            "institute_name": parsed_brand_kit.name,
+            "brand_color": parsed_brand_kit.primary_color,
+        }
+        sig = inspect.signature(fast_b_engine.generate_explainer_from_document)
+        if "logo_base64" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            kwargs["logo_base64"] = getattr(parsed_brand_kit, "logo_base64", None)
+        result = fast_b_engine.generate_explainer_from_document(**kwargs)
         return GenerateExplainerResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate reel from document: {str(e)}")

@@ -94,6 +94,7 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
           brand_kit: {
             name: brandKit.name || 'SNIPSHOT ACADEMY',
             primary_color: brandKit.primary_color || '#4F46E5',
+            logo_base64: brandKit.logo_base64 || brandKit.logo_path,
           },
         }),
       });
@@ -146,6 +147,7 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
         JSON.stringify({
           name: brandKit.name || 'SNIPSHOT ACADEMY',
           primary_color: brandKit.primary_color || '#4F46E5',
+          logo_base64: brandKit.logo_base64 || brandKit.logo_path,
         })
       );
 
@@ -404,7 +406,7 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
               <video
                 key={`${explainer.video_url}?${cacheBuster}`}
                 controls
-                src={`http://localhost:8000${explainer.video_url}`}
+                src={`http://localhost:8000${explainer.video_url}${explainer.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
                 className="w-full h-full object-cover"
               />
             </div>

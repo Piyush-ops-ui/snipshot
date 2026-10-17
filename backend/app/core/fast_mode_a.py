@@ -675,9 +675,11 @@ class FastModeAEngine:
         8. FastNativeCompositor renders single overlay PNG, ASS subtitles, and encodes 9:16 MP4 via native FFmpeg.
         """
         t_start = time.time()
+        logo_base64 = None
         if brand_kit:
             institute_name = brand_kit.get("name", institute_name)
             brand_color = brand_kit.get("primary_color", brand_color)
+            logo_base64 = brand_kit.get("logo_base64") or brand_kit.get("logo_path")
         video_id = uuid.uuid4().hex[:8]
         total_duration = probe_video_duration(video_path)
 
@@ -1120,6 +1122,7 @@ class FastModeAEngine:
             language=code_language,
             qr_data=growth_pack["qr_code_url"],
             template_archetype=template_archetype,
+            logo_base64=logo_base64,
             output_path=overlay_png,
         )
 
@@ -1257,12 +1260,18 @@ class FastModeAEngine:
         hyperlapse: bool = False,
         crop_x: int = 0,
         crop_y: int = 0,
+        brand_kit: Optional[Dict[str, Any]] = None,
+        logo_base64: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Re-renders clip with updated trim sliders, templates, blur, and code snippet in < 3 seconds!
         Persists and re-slices transcript words without dummy placeholders (FIX 2).
         """
         t_start = time.time()
+        if brand_kit:
+            institute_name = brand_kit.get("name", institute_name)
+            brand_color = brand_kit.get("primary_color", brand_color)
+            logo_base64 = brand_kit.get("logo_base64") or brand_kit.get("logo_path") or logo_base64
         c_id = clip_id or uuid.uuid4().hex[:8]
         duration = max(3.0, end_sec - start_sec)
         formatted_snippet = auto_indent_code(code_snippet) if code_snippet else ""
@@ -1329,6 +1338,7 @@ class FastModeAEngine:
             qr_data=f"https://snipshot.studio/snippet/{c_id}",
             template_archetype=template_archetype,
             hyperlapse=hyperlapse,
+            logo_base64=logo_base64,
             output_path=overlay_png,
         )
 

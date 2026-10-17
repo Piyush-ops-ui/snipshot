@@ -24,6 +24,7 @@ class BrandKitConfig(BaseModel):
     # Watermarking & Badging
     watermark_text: Optional[str] = Field(default="TechSummitTrainers", description="Subtle corner/header text")
     logo_path: Optional[str] = Field(default=None, description="Path to institution logo PNG")
+    logo_base64: Optional[str] = Field(default=None, description="Base64 encoded logo image data URL")
     logo_position: Literal["top_left", "top_right", "bottom_left", "bottom_right"] = "top_right"
     show_provenance_badge: bool = Field(default=True, description="Show glowing cyan badge on repaired technical terms")
     

@@ -15,6 +15,8 @@ import re
 import sys
 import time
 import subprocess
+import base64
+import io
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image, ImageDraw, ImageFont
@@ -132,6 +134,7 @@ class FastNativeCompositor:
         output_path: Optional[str] = None,
         template_archetype: str = "standard_spotlight",
         hyperlapse: bool = False,
+        logo_base64: Optional[str] = None,
     ) -> str:
         """
         Creates ONE single static 1080x1920 RGBA image:
@@ -191,7 +194,21 @@ class FastNativeCompositor:
 
         # Logo / Shell icon capsule
         draw.rounded_rectangle([(32, 32), (96, 96)], radius=12, fill=(30, 41, 59, 255), outline=header_line, width=2)
-        draw.text((44, 46), sanitize_for_render(">_"), fill=brand_rgb + (255,), font=self.title_font)
+        logo_pasted = False
+        if logo_base64:
+            try:
+                raw_b64 = logo_base64.split(",", 1)[1] if "," in logo_base64 else logo_base64
+                logo_img = Image.open(io.BytesIO(base64.b64decode(raw_b64))).convert("RGBA")
+                logo_img.thumbnail((56, 56), Image.Resampling.LANCZOS)
+                lw, lh = logo_img.size
+                lx = 32 + (64 - lw) // 2
+                ly = 32 + (64 - lh) // 2
+                img.paste(logo_img, (lx, ly), logo_img)
+                logo_pasted = True
+            except Exception:
+                pass
+        if not logo_pasted:
+            draw.text((44, 46), sanitize_for_render(">_"), fill=brand_rgb + (255,), font=self.title_font)
 
         # Institute Name & Subtitle
         name_text = sanitize_for_render((institute_name or "SNIPSHOT ACADEMY").upper())

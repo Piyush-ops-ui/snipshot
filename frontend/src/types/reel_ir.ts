@@ -60,6 +60,7 @@ export interface BrandKitConfig {
   font_family: string;
   font_size_pt: number;
   logo_path?: string;
+  logo_base64?: string;
   logo_position: 'top_left' | 'top_right' | 'bottom_left';
   show_provenance_badge: boolean;
   enable_intro_bumper: boolean;

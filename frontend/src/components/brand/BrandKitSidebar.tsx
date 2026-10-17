@@ -39,13 +39,20 @@ export const BrandKitSidebar: React.FC<BrandKitSidebarProps> = ({
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const previewUrl = URL.createObjectURL(file);
-      onUpdateBrandKit({ logo_path: previewUrl });
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        onUpdateBrandKit({
+          logo_path: base64String,
+          logo_base64: base64String,
+        });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
   const handleRemoveLogo = () => {
-    onUpdateBrandKit({ logo_path: undefined });
+    onUpdateBrandKit({ logo_path: undefined, logo_base64: undefined });
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
