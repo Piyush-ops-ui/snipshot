@@ -1,0 +1,60 @@
+{
+  "clip_id": "demo_lecture",
+  "video_path": "/home/ninad0109/Ninad_Practice/snipshot/benchmarks/test_clips/demo_lecture.mp4",
+  "duration_sec": 90.0,
+  "width": 1920,
+  "height": 1080,
+  "fps": 30.0,
+  "exposed_secrets": [
+    {
+      "secret_type": "api_key",
+      "raw_text": "sk-live-9988776655",
+      "bbox": [
+        100,
+        127,
+        340,
+        32
+      ],
+      "start": 0.0,
+      "end": 90.0
+    }
+  ],
+  "ground_truth_technical_terms": [
+    "useEffect",
+    "@Autowired",
+    "Kubernetes",
+    "kubectl",
+    "API_KEY"
+  ],
+  "ground_truth_spoken_technical_terms": [
+    "useEffect",
+    "@Autowired",
+    "Kubernetes"
+  ],
+  "ground_truth_mangled_terms": [
+    "use a fact",
+    "auto wired",
+    "coober netties"
+  ],
+  "triad_structure": {
+    "hook_interval": [
+      0.0,
+      22.0
+    ],
+    "mutation_interval": [
+      35.0,
+      55.0
+    ],
+    "resolution_interval": [
+      60.0,
+      90.0
+    ],
+    "error_resolved_at": 60.0
+  },
+  "target_metrics": {
+    "target_tter_percent": 5.0,
+    "target_ctbr_percent": 98.0,
+    "target_wt_mae_ms": 80.0,
+    "target_aclr_percent": 90.0
+  }
+}

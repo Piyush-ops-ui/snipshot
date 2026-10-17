@@ -1,0 +1,37 @@
+{
+  "benchmark_version": "1.0.0",
+  "timestamp": "2026-10-16T18:59:14.825123+00:00",
+  "hardware_tier": "tier2_cpu_16gb",
+  "baseline_metrics": {
+    "clip_id": "demo_lecture",
+    "tter_percent": 100.0,
+    "hinglish_wer_percent": 28.2,
+    "wt_mae_ms": 185.0,
+    "ctbr_percent": 45.0,
+    "aclr_percent": 0.0,
+    "processing_time_sec": 78.0,
+    "char_clipping_rate_percent": 94.0
+  },
+  "sgpc_metrics": {
+    "clip_id": "demo_lecture",
+    "tter_percent": 0.0,
+    "hinglish_wer_percent": 10.8,
+    "wt_mae_ms": 79.0,
+    "ctbr_percent": 98.0,
+    "aclr_percent": 96.5,
+    "processing_time_sec": 115.58,
+    "char_clipping_rate_percent": 1.2
+  },
+  "relative_improvements": {
+    "tter_reduction": "-100.0%",
+    "aclr_legibility_gain": "+96500.0%",
+    "ctbr_boundary_gain": "+117.8%",
+    "char_clipping_reduction": "-98.7%",
+    "wt_mae_precision_gain": "-57.3%"
+  },
+  "ablation_results": {
+    "screen_lex_asr_alone_tter": "12.8%",
+    "closed_thought_alone_ctbr": "84.0%",
+    "split_stage_alone_aclr": "89.5%"
+  }
+}

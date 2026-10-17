@@ -1,0 +1,63 @@
+{
+  "deictic_penalized_starters": [
+    "isko",
+    "iska",
+    "iski",
+    "unko",
+    "inka",
+    "ye wala",
+    "woh wala",
+    "ye jo",
+    "and then this",
+    "and this",
+    "because of that",
+    "uske baad",
+    "toh isko",
+    "ab isko",
+    "yahan pe"
+  ],
+  "triad_intro_hooks": [
+    "why does",
+    "kyun",
+    "kaise",
+    "what is",
+    "kya hota hai",
+    "problem ye hai",
+    "the issue is",
+    "dekho jab",
+    "how to",
+    "difference between",
+    "in this video",
+    "agar hum",
+    "let's understand"
+  ],
+  "triad_resolution_markers": [
+    "toh is tarah",
+    "hence",
+    "therefore",
+    "ab dekho output",
+    "now see the output",
+    "compiled successfully",
+    "error resolved",
+    "this solves the problem",
+    "so that is why",
+    "toh aise fix karte hain",
+    "and it works",
+    "now it runs once",
+    "output is ready"
+  ],
+  "common_misrecognitions": {
+    "use a fact": "useEffect",
+    "use effect": "useEffect",
+    "auto wire": "@Autowired",
+    "auto wired": "@Autowired",
+    "cube control": "kubectl",
+    "cube cuddle": "kubectl",
+    "cuber netties": "Kubernetes",
+    "coober netties": "Kubernetes",
+    "fast a p i": "FastAPI",
+    "pie dantic": "Pydantic",
+    "tree sitter": "tree-sitter",
+    "application properties": "application.properties"
+  }
+}

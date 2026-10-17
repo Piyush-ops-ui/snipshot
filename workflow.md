@@ -27,6 +27,7 @@ flowchart TD
             A5["Phonetic-Surface Alignment & Repair"]
             A6["ClosedThought Triad Highlight Scorer"]
             A7["Smart Reframer (Dead-Zone / SplitStage)"]
+            A8["SafeCohort Secret & PII Scanner (API Keys / .env)"]
         end
 
         subgraph ModeB_Proc["Mode B: AST Pedagogical Compiler"]
@@ -37,27 +38,28 @@ flowchart TD
     end
 
     subgraph Bridge["3. Declarative Intermediate Representation"]
-        ReelIR[("Unified Reel-IR Document\n- 5-Track Declarative Timeline\n- Word Timestamps & Prov Badges\n- Viewport Keyframes & Code Cards\n- Brand Kit Theme Configuration")]
+        ReelIR[("Unified Reel-IR Document\n- 5-Track Declarative Timeline\n- Word Timestamps & Prov Badges\n- Viewport Keyframes & Code Cards\n- SafeCohort Redaction Boxes\n- Pedagogical Archetype Templates\n- Social Growth Pack & Outro QR\n- Dead-Air Hyperlapse Intervals")]
     end
 
     subgraph Studio["4. Interactive Studio & HITL Review"]
-        UI_Review["Interactive Timeline & Provenance UI\n- Checkpoint 1: OCR Provenance Inspection\n- Checkpoint 2: Sentence-Snap Boundary Trim\n- Checkpoint 3: Layout Mode Selection\n- Checkpoint 4: Live Brand Kit Customization"]
+        UI_Review["Interactive Timeline & Provenance UI\n- Checkpoint 1: OCR Provenance Inspection\n- Checkpoint 2: Sentence-Snap Boundary Trim\n- Checkpoint 3: Layout Mode Selection\n- Checkpoint 4: Live Brand Kit & Archetype Config\n- Checkpoint 5: SafeCohort Blur & QR Review\n- SnipShot Local ROI Telemetry (₹0 Cloud Cost)"]
     end
 
     subgraph Output["5. Deterministic Composition & Delivery"]
-        Renderer["Pillow HUD Synthesizer + FFmpeg Subprocess Pipe"]
-        ExportMP4["Final 1080x1920 9:16 Branded Reel MP4\n- High-Contrast Monospace Code Cards\n- Synchronized Karaoke Word Captions\n- Dynamic Dual-ROI SplitStage Viewport"]
+        Renderer["Pillow HUD Synthesizer + FFmpeg Subprocess Pipe\n- cv2.GaussianBlur on Redaction Boxes\n- Dead-Air 2.5x Typing Hyperlapse\n- Dynamic Header Color Shift (Bug Hunter)\n- qrcode Library Outro Scan-to-Copy Stamp"]
+        ExportMP4["Final 1080x1920 9:16 Branded Reel MP4\n- High-Contrast Monospace Code Cards\n- Synchronized Karaoke Word Captions\n- Dynamic Dual-ROI SplitStage Viewport\n- Redacted Secrets & Outro Code QR"]
         FeedbackLoop["Telemetry & PedagogyScore Feedback\n- Re-ranks highlight weights via Bandit update"]
     end
 
     InputA --> A1 & A2
     A2 --> A3
     A3 -->|Dynamic Hotwords| A4
+    A3 --> A8
     InputA --> A4
     A3 & A4 --> A5
     A1 & A2 & A5 --> A6
     A5 & A2 --> A7
-    A6 & A7 --> ReelIR
+    A6 & A7 & A8 --> ReelIR
 
     InputB --> B1 --> B2 --> B3 --> ReelIR
 
@@ -98,6 +100,8 @@ sequenceDiagram
         OCR->>OCR: Run CLAHE contrast filter & RapidOCR
         OCR->>OCR: Filter identifiers (camelCase, @decorators, CLI)
         OCR-->>TSSG: Register ScreenTokens with [x, y, w, h] & timestamps
+        OCR->>OCR: SafeCohort Scanner runs regex & entropy analysis on token boxes
+        OCR-->>TSSG: Register RedactionBoxes [x, y, w, h] (API keys, .env secrets, PII)
     and Audio Stream Processing
         API->>ASR: Extract 16kHz mono audio WAV
         OCR-->>ASR: Provide top 60 screen identifiers for hotwords & prompt
@@ -110,13 +114,16 @@ sequenceDiagram
     Repair->>Repair: Compute Metaphone + Jaro-Winkler phonetic similarity
     Note over Repair: Merges 'use a fact' into 'useEffect' (Sim >= 0.82)
     Repair->>TSSG: Commit repaired WordAlignment stream with OCR provenance badges
+    TSSG->>TSSG: Detect silent typing intervals > 1.2s for 2.5x Hyperlapse speedup
 
     TSSG->>Clipper: Transmit synchronized screen-speech multimodal nodes
     Clipper->>Clipper: Evaluate 30-60s candidate windows
     Clipper->>Clipper: Compute Triad Score (Hook + Mutation + Verification)
     Clipper->>Clipper: Apply Deictic Penalty on dangling pronouns ('isko...')
     Clipper->>Clipper: Snap start and end to complete sentence boundaries
-    Clipper-->>Reframer: Top-scored clip interval [T_start, T_end]
+    Clipper->>Clipper: Classify Template Archetype (standard, bug_hunter, vs_battle, predict_output)
+    Clipper->>Clipper: Generate Social Growth Pack (tiered hashtags, hook title, QR data)
+    Clipper-->>Reframer: Top-scored clip interval [T_start, T_end] + Metadata
 
     Reframer->>Reframer: Analyze spatial activity & code line widths in [T_start, T_end]
     alt Single compact active region (width <= 850px)
@@ -127,7 +134,7 @@ sequenceDiagram
         Reframer->>Reframer: Trigger Readable916 AST Code Spotlight Card
     end
 
-    Reframer-->>DB: Assemble and persist initial Reel-IR JSON
+    Reframer-->>DB: Assemble and persist initial Reel-IR JSON (with RedactionBoxes & Archetypes)
     DB-->>User: Return Reel-IR payload to Studio Timeline UI
 ```
 
@@ -196,31 +203,37 @@ flowchart TD
         IR_Viewports["Track 3: Viewport Keyframes (Single / SplitStage)"]
         IR_CodeCards["Track 4: Code Spotlight Cards (Syntax & Highlight)"]
         IR_Brand["Track 5: Brand Kit (Colors, Fonts, Watermarks, Bumpers)"]
+        IR_Security["SafeCohort: Redaction Boxes (Bounding boxes & intervals)"]
+        IR_Archetype["Pedagogical Archetype (standard / bug_hunter / vs_battle / predict_output)"]
+        IR_Growth["Social Growth Pack & Outro QR (Scan-to-copy code snippet)"]
+        IR_Hyperlapse["Dead-Air Typing Intervals (>1.2s silent typing @ 2.5x)"]
     end
 
     subgraph CompositionEngine["Pillow + FFmpeg Frame Streaming Engine"]
-        Clock["Timeline Clock (t = 0.00s to t = T_end, step = 1/30s)"]
+        Clock["Timeline Clock (t = 0.00s to t = T_end, step = 1/30s)\n- Speed scaled by 2.5x during Hyperlapse intervals"]
         
         subgraph FrameSynthesizer["Per-Frame Generator (Python in-memory)"]
             BaseCrop["1. Source Video Crop & Resize\n- Single: Crop 1920x1080 via L1 Box\n- SplitStage: Crop Upper IDE + Lower Terminal"]
-            CodeOverlay["2. Pygments Syntax Card\n- Render active code card with highlighted lines\n- Monospace 32px font, 100% mobile legible"]
-            Captions["3. Word-by-Word Karaoke HUD\n- Render subtitle box\n- Active spoken word highlighted in Brand Cyan\n- Provenance badge indicator"]
-            BrandLayer["4. Brand Layering\n- Header watermark & Institute Logo\n- Progress bar at bottom edge"]
+            BlurShield["2. SafeCohort Secret Blur\n- Localized cv2.GaussianBlur over RedactionBoxes\n- Obscures API keys, .env secrets, passwords, PII"]
+            ArchetypeLayer["3. Pedagogical Archetype Styling\n- Bug Hunter: Dynamic Crimson -> Emerald header at error_resolved_at\n- VS Battle: Top Legacy vs Bottom Modern comparison cards\n- Predict Output: 2s freeze-frame callout"]
+            CodeOverlay["4. Pygments Syntax Card\n- Render active code card with highlighted lines\n- Monospace 32px font, 100% mobile legible"]
+            Captions["5. Word-by-Word Karaoke HUD\n- Subtitle pill box with Brand Cyan highlight & provenance badge"]
+            BrandLayer["6. Brand Layering & Outro QR Stamp\n- Header watermark & Institute Logo\n- Progress bar at bottom edge\n- Outro Bumper with offline qrcode for code copying"]
         end
 
         BufferPipe["In-Memory Raw Video Pipe (stdout -> stdin)\n- 1080x1920 @ 30fps RGBA / YUV420p"]
     end
 
     subgraph FFmpegProcess["FFmpeg Hardware/CPU Subprocess"]
-        Encoder["FFmpeg Process Configuration\n- Input: rawvideo -pix_fmt yuv420p -s 1080x1920\n- Audio Input: -i audio.wav -c:a aac -b:a 192k\n- Video Codec: libx264 (preset: fast, crf: 20)\n  or h264_nvenc (if NVIDIA GPU detected)"]
-        BumperStitch["Intro/Outro Bumper Concatenation Filter"]
+        Encoder["FFmpeg Process Configuration\n- Input: rawvideo -pix_fmt yuv420p -s 1080x1920\n- Audio Input: -i audio.wav (with atempo filter during hyperlapse)\n- Video Codec: libx264 (preset: fast, crf: 20)\n  or h264_nvenc (if NVIDIA GPU detected)"]
+        BumperStitch["Intro/Outro Bumper Concatenation Filter (with QR Stamp)"]
         DiskWriter["Atomic Output MP4 File Generator"]
     end
 
-    IR_Audio --> Clock
-    IR_Transcript & IR_Viewports & IR_CodeCards & IR_Brand --> FrameSynthesizer
+    IR_Audio & IR_Hyperlapse --> Clock
+    IR_Transcript & IR_Viewports & IR_CodeCards & IR_Brand & IR_Security & IR_Archetype & IR_Growth --> FrameSynthesizer
     Clock --> FrameSynthesizer
-    BaseCrop --> CodeOverlay --> Captions --> BrandLayer --> BufferPipe
+    BaseCrop --> BlurShield --> ArchetypeLayer --> CodeOverlay --> Captions --> BrandLayer --> BufferPipe
     BufferPipe --> Encoder
     IR_Audio --> Encoder
     Encoder --> BumperStitch --> DiskWriter
@@ -231,7 +244,7 @@ flowchart TD
 
 ## 5. Human-in-the-Loop (HITL) Validation Checkpoints
 
-SnipShot integrates four explicit validation checkpoints where the instructor or editor can inspect, adjust, and approve AI-generated choices before video export.
+SnipShot integrates five explicit validation checkpoints where the instructor or editor can inspect, adjust, and approve AI-generated choices before video export.
 
 ```mermaid
 stateDiagram-v2
@@ -274,23 +287,34 @@ stateDiagram-v2
         SwitchMode: Toggle between:\n1. Damped Single Focus\n2. Dual-ROI SplitStage\n3. AST Code Spotlight Card
     }
 
-    Checkpoint3 --> Checkpoint4: Proceed to Brand & Export
+    Checkpoint3 --> Checkpoint4: Proceed to Brand & Archetype
 
     state Checkpoint4 {
         [*] --> ApplyBrandKit
         ApplyBrandKit: Select Institute Brand Kit\n(Colors, Fonts, Watermark, Outro)
-        ApplyBrandKit --> FastPreview: Fast Sub-10s Preview Re-Render
+        ApplyBrandKit --> SelectArchetype: Pick Pedagogical Archetype\n(Standard, Bug Hunter, VS Battle, Predict Output)
+        SelectArchetype --> ArchetypePreview: Preview dynamic color shifts or split cards
+    }
+
+    Checkpoint4 --> Checkpoint5: Proceed to Security & Growth Pack
+
+    state Checkpoint5 {
+        [*] --> SafeCohortReview
+        SafeCohortReview: Inspect detected secrets (API keys, .env, PII)\nToggle Gaussian blur boxes on/off
+        SafeCohortReview --> GrowthPackReview: Inspect SEO hook, tiered hashtags & Outro QR Code
+        GrowthPackReview --> LocalROITelemetry: View SnipShot Local ROI Telemetry\n(₹0.00 Cloud Cost, Credits Saved, 100% On-Device Privacy)
+        LocalROITelemetry --> FastPreview: Fast Sub-10s Preview Re-Render
         FastPreview --> ExportFinal: Approve for Final 1080x1920 MP4 Export
     }
 
-    Checkpoint4 --> [*]: Video Downloaded / Scheduled
+    Checkpoint5 --> [*]: Video Downloaded / Scheduled
 ```
 
 ---
 
 ## 6. Error Handling & Fallback Decision Matrix
 
-This flowchart details how the system gracefully handles real-world edge cases (dark themes, high CPU load, Hinglish script drift, and LLM timeouts) without failing or producing corrupted outputs.
+This flowchart details how the system gracefully handles real-world edge cases (dark themes, high CPU load, Hinglish script drift, LLM timeouts, and exposed secrets) without failing or producing corrupted outputs.
 
 ```mermaid
 flowchart TD
@@ -329,6 +353,14 @@ flowchart TD
         E4_Timeout -- Yes --> E4_Fallback["Activate Deterministic AST Template Engine"]
         E4_Fallback --> E4_Build["Construct validated comparison layout from template library\n(Pre-validated syntax & 42-char layout)"]
         E4_Build --> E4_Success
+    end
+
+    subgraph EdgeCase5["Edge Case 5: Accidental Secret or PII Leak in Screen Recording"]
+        E5_In["Extracted OCR Tokens"] --> E5_Scan{"Matches secret regex (sk-, AWS, password, .env) or high Shannon entropy?"}
+        E5_Scan -- No --> E5_Pass["Mark frame tokens safe"]
+        E5_Scan -- Yes --> E5_Redact["Register RedactionBox with coordinates [x, y, w, h] in ReelIR"]
+        E5_Redact --> E5_Blur["Compositor applies cv2.GaussianBlur over bounding box across visible interval"]
+        E5_Blur --> E5_Alert["Display SafeCohort active shield badge in Studio UI & Telemetry"]
     end
 ```
 

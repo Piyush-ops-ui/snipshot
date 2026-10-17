@@ -86,6 +86,19 @@ SnipShot implements **Screen-Grounded Pedagogical Compilation (SGPC)**, an archi
 - **Mechanism:** Decompiled lecture segments (Mode A) and prompt-synthesized explainers (Mode B) share a single declarative schema.
 - **Composition Engine:** A lightweight Python streaming worker generates frame overlays with `Pillow` and `Pygments` and pipes raw image frames directly into an `FFmpeg` subprocess. This eliminates heavy browser engines (Puppeteer/Remotion) and achieves sub-10s rendering times on local CPUs.
 
+### The 10-Weapon Hackathon Arsenal & SnipShot Local-First ROI
+SnipShot establishes an unbeatable architectural foundation powered by 10 modular, lightweight capabilities:
+1. **Weapon 1 (`ScreenLex-ASR`):** 2-Pass Visual-Lexical Grounding (Plateau RapidOCR tokens bias `faster-whisper` hotwords + Double-Metaphone phonetic repair with Hindi particle guards).
+2. **Weapon 2 (`SplitStage`):** Dual-ROI Transposition (Detects bimodal horizontal activity, transposing Left IDE + Right Terminal into an upper $1080 \times 1020\text{px}$ and lower $1080 \times 680\text{px}$ vertical stack).
+3. **Weapon 3 (`Readable916`):** AST Code Spotlight Card (Lifts wide lines $>850\text{px}$ into a high-contrast 32px monospace card; 0 characters clipped horizontally).
+4. **Weapon 4 (`ClosedThought`):** Pedagogical Triad Scorer (Evaluates Hook $\rightarrow$ Mutation $\rightarrow$ Verification; penalizes dangling deictic pronouns; snaps to complete sentences).
+5. **Weapon 5 (`SafeCohort`):** Secret & PII Blur Shield (Regex & entropy checks on OCR boxes for `sk-`, AWS keys, passwords, applying localized `cv2.GaussianBlur`).
+6. **Weapon 6 (`VerifiedCodeReel`):** AST Syntax Gate (Tree-sitter validation guaranteeing 0 syntax errors, 42-char line limits, and audio-bookmark synchronized typing).
+7. **Weapon 7 (`ArchetypePacks`):** 4 Pedagogical Templates (`standard_spotlight`, `bug_hunter` crimson-to-green header shift, `vs_battle` split comparison, `predict_output` pause callout).
+8. **Weapon 8 (`SocialGrowthPack`):** Screen-Grounded SEO & Outro QR Code (AST-derived tiered hashtags + 'Scan-to-Copy' outro QR stamp rendered via `qrcode`).
+9. **Weapon 9 (`TypingHyperlapse`):** Dead-Air 2.5x Fast-Forward (Identifies silent typing intervals $>1.2\text{s}$ and fast-forwards them at 2.5x speed).
+10. **Weapon 10 (`LocalROI`):** Local Hardware ROI Telemetry (Auto-detects host tier, displays ₹0.00 cloud costs, computes lifetime SaaS savings, guarantees 100% on-device privacy).
+
 ---
 
 ## 3. Production Directory Structure
@@ -94,6 +107,7 @@ The repository follows a clean, decoupled monorepo layout:
 
 ```text
 snipshot/
+├── architecture.md                        # Flagship architecture, competitor matrix & business model
 ├── plan.md                                # Comprehensive architectural foundation (this document)
 ├── workflow.md                            # Visual operational workflows (Mermaid.js diagrams)
 ├── research.md                            # Foundational research, competitor audits, and literature
@@ -265,9 +279,31 @@ from typing import List, Optional, Tuple
 from pydantic import BaseModel, Field
 
 class LayoutMode(str, Enum):
-    SINGLE_FOCUS = "single_focus"      # Stabilized dead-zone camera on active region
-    SPLIT_STAGE = "split_stage"        # Upper IDE crop + Lower Terminal/Diagram crop
-    CODE_SPOTLIGHT = "code_spotlight"  # Rendered AST syntax card + zoomed context
+    SINGLE_FOCUS = "single_focus"        # Stabilized dead-zone camera on active region
+    SPLIT_STAGE = "split_stage"          # Upper IDE crop + Lower Terminal/Diagram crop
+    CODE_SPOTLIGHT = "code_spotlight"    # Rendered AST syntax card + zoomed context
+
+class TemplateArchetype(str, Enum):
+    STANDARD_SPOTLIGHT = "standard_spotlight"  # Default clean code & commentary layout
+    BUG_HUNTER = "bug_hunter"                  # Crimson Red during error, Emerald Green at fix
+    VS_BATTLE = "vs_battle"                    # Split card: ❌ Legacy/Verbose vs ✅ Optimal/Modern
+    PREDICT_OUTPUT = "predict_output"          # 2s freeze-frame callout before terminal reveal
+
+class RedactionBox(BaseModel):
+    id: str
+    start: float
+    end: float
+    bbox: Tuple[int, int, int, int] = Field(..., description="[x, y, w, h] coordinates to Gaussian blur")
+    secret_type: str = Field(..., description="'api_key', 'jwt_secret', 'password', 'email'")
+    confidence: float = Field(default=1.0)
+
+class SocialGrowthPack(BaseModel):
+    hook_title: str
+    broad_hashtags: List[str] = Field(default_factory=list)      # e.g., #coding, #programming
+    stack_hashtags: List[str] = Field(default_factory=list)      # e.g., #reactjs, #springboot
+    micro_api_hashtags: List[str] = Field(default_factory=list)  # e.g., #useeffect, #autowired
+    pinned_code_comment: str
+    qr_code_data: str                                            # URL or gist payload for outro scan
 
 class WordAlignment(BaseModel):
     id: str = Field(..., description="Unique word identifier")
@@ -284,7 +320,6 @@ class WordAlignment(BaseModel):
 class ViewportKeyframe(BaseModel):
     timestamp: float = Field(..., description="Keyframe timestamp in seconds")
     mode: LayoutMode
-    # Coordinates normalized to [0.0, 1.0] relative to 1920x1080 source
     top_crop: Tuple[float, float, float, float] = Field(..., description="[x, y, w, h] for upper viewport")
     bottom_crop: Optional[Tuple[float, float, float, float]] = Field(None, description="[x, y, w, h] for lower viewport (SplitStage)")
     transition_duration: float = Field(default=0.0, description="Duration in seconds (0.0 = instant jump-cut)")
@@ -326,25 +361,48 @@ class ReelIR(BaseModel):
     clip_end: float = Field(..., description="End timestamp within source video")
     total_duration: float = Field(..., description="Duration in seconds (clip_end - clip_start)")
     
-    # 5-Track Declarative Timeline
+    # 5-Track Declarative Timeline + Weapon Extensions
     audio_path: str = Field(..., description="Path to extracted or synthesized audio WAV")
     transcript: List[WordAlignment] = Field(..., description="Word-level aligned transcript track")
     viewports: List[ViewportKeyframe] = Field(..., description="Viewport retargeting track")
     code_cards: List[CodeSpotlightCard] = Field(default_factory=list, description="Readable916 overlay track")
+    redaction_boxes: List[RedactionBox] = Field(default_factory=list, description="SafeCohort secret blur track")
+    template_archetype: TemplateArchetype = Field(default=TemplateArchetype.STANDARD_SPOTLIGHT)
+    growth_pack: Optional[SocialGrowthPack] = None
+    typing_hyperlapse_intervals: List[Tuple[float, float]] = Field(default_factory=list, description="Silent typing intervals sped up 2.5x")
     brand_kit: BrandKitConfig = Field(default_factory=BrandKitConfig)
     
     # Pedagogical Metadata & Provenance
     pedagogical_score: float = Field(default=0.0, description="Overall Pedagogical Triad Score")
+    error_resolved_at: Optional[float] = Field(None, description="Timestamp where error is resolved for Bug Hunter archetype")
     entry_closure_verified: bool = Field(default=True)
     exit_closure_verified: bool = Field(default=True)
     technical_term_count: int = Field(default=0)
     created_at: str
-```
 
 ### B. TypeScript Equivalent (`frontend/src/types/reel_ir.ts`)
 
 ```typescript
 export type LayoutMode = 'single_focus' | 'split_stage' | 'code_spotlight';
+export type TemplateArchetype = 'standard_spotlight' | 'bug_hunter' | 'vs_battle' | 'predict_output';
+
+export interface RedactionBox {
+  id: string;
+  start: number;
+  end: number;
+  bbox: [number, number, number, number];
+  secret_type: 'api_key' | 'jwt_secret' | 'password' | 'email';
+  confidence: number;
+}
+
+export interface SocialGrowthPack {
+  hook_title: string;
+  broad_hashtags: string[];
+  stack_hashtags: string[];
+  micro_api_hashtags: string[];
+  pinned_code_comment: string;
+  qr_code_data: string;
+}
 
 export interface WordAlignment {
   id: string;
@@ -409,8 +467,13 @@ export interface ReelIR {
   transcript: WordAlignment[];
   viewports: ViewportKeyframe[];
   code_cards: CodeSpotlightCard[];
+  redaction_boxes: RedactionBox[];
+  template_archetype: TemplateArchetype;
+  growth_pack?: SocialGrowthPack;
+  typing_hyperlapse_intervals: [number, number][];
   brand_kit: BrandKitConfig;
   pedagogical_score: number;
+  error_resolved_at?: number;
   entry_closure_verified: boolean;
   exit_closure_verified: boolean;
   technical_term_count: number;
@@ -431,13 +494,14 @@ export interface ReelIR {
 - **Output:** A list of stabilized keyframe timestamps and 1080p frame image files.
 
 ### 2. `backend/app/core/screen_lex_ocr.py`
-- **Responsibility:** Runs high-accuracy, low-latency ONNX-based OCR on plateau frames, extracts bounding boxes, and filters programming identifiers.
+- **Responsibility:** Runs high-accuracy, low-latency ONNX-based OCR on plateau frames, extracts bounding boxes, filters programming identifiers, and executes **SafeCohort Secret & PII Scanning**.
 - **Core Methods:**
   - `extract_screen_tokens(plateau_frames: List[PlateauFrame]) -> List[ScreenToken]`
   - Applies a CLAHE contrast enhancement pre-filter to handle dark-mode IDE editors cleanly.
   - Executes `RapidOCR` to extract text lines and bounding boxes `[x, y, w, h]`.
   - Filters tokens using strict technical regexes: camelCase (`[a-z]+[A-Z][a-zA-Z0-9]*`), decorators (`@[A-Za-z]+`), snake_case, CLI commands, and intersections with `tech_glossary.json`.
-- **Output:** A temporal index of screen identifiers with pixel coordinates: $\mathcal{L}(t)$.
+  - **Weapon 5 (`SafeCohort Scanner`):** Inspects OCR boxes with Shannon entropy and regexes to detect exposed API keys (`sk-`, AWS keys, bearer tokens, passwords, emails), generating `RedactionBox` coordinates for localized blurring.
+- **Output:** A temporal index of screen identifiers with pixel coordinates $\mathcal{L}(t)$ and detected `RedactionBox` coordinates.
 
 ### 3. `backend/app/core/grounded_asr.py` & `phonetic_repair.py`
 - **Responsibility:** Executes speech recognition and word alignment on Hinglish audio, then repairs mistranscriptions using on-screen tokens.
@@ -449,6 +513,7 @@ export interface ReelIR {
   - `repair_technical_words(words: List[ASRWord], screen_lexicon: List[ScreenToken]) -> List[WordAlignment]`
     - Evaluates sliding windows of $k \in \{1, 2, 3\}$ words against candidates visible within $\pm 20$ seconds.
     - Computes phonetic Metaphone similarity and Jaro-Winkler string distance.
+    - Enforces Hindi grammatical particle guards to prevent absorption of preceding particles (*"mein"*, *"ko"*).
     - If score $\ge 0.82$, merges words into a single technical token (`grounded_word`), attaches the source bounding box `provenance_bbox`, and saves a cropped image thumbnail for the UI.
 - **Output:** Fully aligned, phonetically repaired `WordAlignment` stream.
 
@@ -484,16 +549,22 @@ export interface ReelIR {
 - **Output:** A valid `Reel-IR` document ready for the Studio preview and compositor.
 
 ### 7. `backend/app/core/compositor.py`
-- **Responsibility:** Renders the declarative `Reel-IR` timeline into a high-definition 1080×1920 MP4 video.
+- **Responsibility:** Renders the declarative `Reel-IR` timeline into a high-definition 1080×1920 MP4 video, incorporating the 10-Weapon Arsenal.
 - **Core Methods:**
   - `render_reel(reel: ReelIR, output_path: str, progress_callback: Callable[[float], None]) -> str`
-  - Generates transparent HUD overlays in memory using `Pillow`:
-    - Word-by-word karaoke captions with cyan active-word highlighting.
-    - Glowing visual provenance badges for repaired technical terms.
-    - High-contrast syntax-highlighted code cards (via `Pygments`).
-    - Institute Brand Kit watermarks, logos, and header banners.
+  - **Weapon 5 (`SafeCohort Blur`):** Applies localized `cv2.GaussianBlur` over `redaction_boxes` coordinates during frame composition.
+  - **Weapon 7 (`Archetype Rendering`):**
+    - `bug_hunter`: Header bar shifts dynamically from Crimson Red (`#EF4444`) to Emerald Green (`#10B981`) at `error_resolved_at`.
+    - `vs_battle`: Renders split contrast card with `❌ Legacy/Verbose` (red) vs `✅ Optimal/Modern` (green).
+    - `predict_output`: Emits a 2-second freeze frame with a "Pause & Comment the Output!" callout.
+  - **Weapon 8 (`Outro QR Stamp`):** Renders a scannable 'Scan-to-Copy-Code' QR code in the outro bumper using the `qrcode` library.
+  - **Weapon 9 (`Typing Hyperlapse`):** Fast-forwards silent typing intervals $>1.2\text{s}$ at 2.5x speed to eliminate dead air.
   - Pipes raw frames into an `FFmpeg` subprocess configured with hardware-accelerated video encoding (`h264_nvenc` or multi-threaded CPU `libx264`).
 - **Performance Guarantee:** 45s Reel renders in 8–15 seconds on a modern multi-core CPU.
+
+### 8. `backend/app/services/hardware_profiler.py`
+- **Responsibility:** Hardware inspection, Tier 1/2/3 auto-detection, sequential memory management, and **Weapon 10 (SnipShot Local ROI Telemetry)**.
+- **Core Metrics:** Computes ₹0.00 cloud inference costs, estimated SaaS monthly savings (₹4,500/mo), and 100% on-device privacy guarantee.
 
 ---
 
