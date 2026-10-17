@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { API_BASE } from '@/config/api';
 import { Badge } from '@/components/ui/badge';
 import { WordAlignment } from '@/types/reel_ir';
 
@@ -55,8 +56,8 @@ export const ProvenanceDialog: React.FC<ProvenanceDialogProps> = ({
   const thumbnailUrl = word.provenance_thumbnail_url
     ? word.provenance_thumbnail_url.startsWith('http')
       ? word.provenance_thumbnail_url
-      : `http://localhost:8000${word.provenance_thumbnail_url.startsWith('/') ? '' : '/'}${word.provenance_thumbnail_url}`
-    : 'http://localhost:8000/provenance/st_1000.png';
+      : `${API_BASE}${word.provenance_thumbnail_url.startsWith('/') ? '' : '/'}${word.provenance_thumbnail_url}`
+    : `${API_BASE}/provenance/st_1000.png`;
 
   const handleSave = () => {
     if (editedTerm.trim() && onSaveOverride) {
@@ -169,7 +170,7 @@ export const ProvenanceDialog: React.FC<ProvenanceDialogProps> = ({
               className="max-h-28 object-contain rounded border border-slate-700 shadow-md bg-slate-900"
               onError={(e) => {
                 // If specific crop not found, fallback to standard test thumb
-                (e.target as HTMLImageElement).src = 'http://localhost:8000/provenance/st_1000.png';
+                (e.target as HTMLImageElement).src = `${API_BASE}/provenance/st_1000.png`;
               }}
             />
             <div className="absolute bottom-2 right-2 bg-slate-950/80 backdrop-blur-sm border border-cyan-500/40 rounded px-1.5 py-0.5 text-[9px] font-mono text-cyan-300 flex items-center gap-1">

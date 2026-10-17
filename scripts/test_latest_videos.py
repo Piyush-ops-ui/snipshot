@@ -56,7 +56,7 @@ VIDEOS = [
         "name": "Video 4 (GitHub Desktop & Terminal)",
         "path": "/home/ninad0109/Downloads/WhatsApp Video 2026-10-17 at 01.58.04.mp4",
         "expected_lang": "bash",
-        "expected_code_tokens": ["touch index.html", "sample-repo"],
+        "expected_code_tokens": ["desktop.github.com", "github", "touch index.html", "sample-repo"],
         "expected_tags": ["#githubdesktop", "#git", "#terminal"],
         "expected_resolution": (1920, 1080),
     },
@@ -117,7 +117,7 @@ def main():
         print(f"      ✅ Processed in {elapsed}s (Engine elapsed: {res['elapsed_seconds']}s)")
 
         # 1. Output MP4 Verification
-        output_rel = res["video_url"].lstrip("/")
+        output_rel = res["video_url"].split("?")[0].lstrip("/")
         output_mp4 = BASE_DIR / "backend" / output_rel
         if not output_mp4.exists():
             output_mp4 = BASE_DIR / output_rel

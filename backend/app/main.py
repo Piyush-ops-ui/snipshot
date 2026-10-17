@@ -86,6 +86,12 @@ async def health_check():
     }
 
 
+# Single-Origin Production Serving: Mount compiled Vite React frontend if frontend/dist exists
+frontend_dist = ROOT_DIR / "frontend" / "dist"
+if frontend_dist.exists() and (frontend_dist / "index.html").exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.app.main:app", host=settings.HOST, port=settings.PORT, reload=True)

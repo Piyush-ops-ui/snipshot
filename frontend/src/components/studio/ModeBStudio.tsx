@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { BrandKitConfig } from '@/types/reel_ir';
+import { API_BASE } from '@/config/api';
 
 interface ModeBStudioProps {
   brandKit: BrandKitConfig;
@@ -86,7 +87,7 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
         });
       }, 500);
 
-      const response = await fetch('http://localhost:8000/api/v1/mode-b/generate-explainer', {
+      const response = await fetch(`${API_BASE}/api/v1/mode-b/generate-explainer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -151,7 +152,7 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
         })
       );
 
-      const response = await fetch('http://localhost:8000/api/v1/mode-b/generate-from-doc', {
+      const response = await fetch(`${API_BASE}/api/v1/mode-b/generate-from-doc`, {
         method: 'POST',
         body: formData,
       });
@@ -406,12 +407,12 @@ export const ModeBStudio: React.FC<ModeBStudioProps> = ({ brandKit }) => {
               <video
                 key={`${explainer.video_url}?${cacheBuster}`}
                 controls
-                src={`http://localhost:8000${explainer.video_url}${explainer.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
-                className="w-full h-full object-cover"
+                src={`${API_BASE}${explainer.video_url}${explainer.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
+                className="w-full h-full object-cover [&:fullscreen]:object-contain"
               />
             </div>
             <a
-              href={`http://localhost:8000${explainer.video_url}`}
+              href={`${API_BASE}${explainer.video_url}`}
               download="snipshot_explainer.mp4"
               target="_blank"
               rel="noreferrer"

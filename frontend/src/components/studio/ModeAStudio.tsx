@@ -32,6 +32,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ProvenanceDialog } from '@/components/provenance/ProvenanceDialog';
 import { BrandKitConfig, TemplateArchetype, WordAlignment, SocialGrowthPack } from '@/types/reel_ir';
+import { API_BASE } from '@/config/api';
+import { DataFlowPipeline, PipelineTelemetry } from './DataFlowPipeline';
 
 interface ModeAStudioProps {
   brandKit: BrandKitConfig;
@@ -70,7 +72,48 @@ interface ClipData {
   bug2fix_detected: boolean;
   key_teaching_moment: boolean;
   typing_hyperlapse_sec: number;
+  ocr_telemetry?: PipelineTelemetry;
+  candidate_highlights?: any[];
 }
+
+export interface SampleLecture {
+  id: string;
+  label: string;
+  tag: string;
+  duration: string;
+  badge: string;
+}
+
+export const SAMPLE_LECTURES: SampleLecture[] = [
+  {
+    id: 'apnacollege_python',
+    label: 'ApnaCollege Python (FirstProgram.py)',
+    tag: 'Python 3 • Type Casting & Conditions',
+    duration: '1h 17m',
+    badge: 'Python',
+  },
+  {
+    id: 'java_whacamole',
+    label: 'Java Swing GUI (WhacAMole.java)',
+    tag: 'Java Swing • JFrame & ActionListeners',
+    duration: '32m 22s',
+    badge: 'Java Swing',
+  },
+  {
+    id: 'java_oop_car',
+    label: 'Java OOP (Main.java & Car.java)',
+    tag: 'OOP Architecture • Class & Methods',
+    duration: '9m 50s',
+    badge: 'Java OOP',
+  },
+  {
+    id: 'github_desktop',
+    label: 'GitHub Desktop & Terminal',
+    tag: 'Git Version Control • Branch & Push',
+    duration: '11m 12s',
+    badge: 'Git CLI',
+  },
+];
 
 const buildPinnedCodeComment = (code: string) => {
   const trimmed = code.trim();
@@ -143,6 +186,7 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
   onSelectArchetype,
 }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedSampleId, setSelectedSampleId] = useState<string>('apnacollege_python');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
   const [progressStage, setProgressStage] = useState<string>('');
@@ -272,7 +316,7 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
         });
       }, 1200);
 
-      const response = await fetch('http://localhost:8000/api/v1/mode-a/process-video', {
+      const response = await fetch(`${API_BASE}/api/v1/mode-a/process-video`, {
         method: 'POST',
         body: formData,
       });
@@ -288,60 +332,115 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
       setProgress(100);
       setProgressStage('Finished!');
 
-      const backendRepairs: RepairedTerm[] = (data.repaired_terms || []).map((t: any, idx: number) => ({
-        id: t.id || `crop_${idx}`,
-        raw_asr: t.raw_asr || t.raw || 'misheard term',
-        repaired_term: t.repaired_term || t.term || 'RepairedCode',
-        confidence: t.confidence ?? 0.95,
-        thumbnail: t.thumbnail || `/provenance/crop_${(idx % 10) + 1}.png`,
-        timestamp: t.timestamp ?? 12.0,
-        bbox: t.bbox,
-      }));
-
-      const finalRepairs = backendRepairs.length > 0 ? backendRepairs : DEMO_REPAIRED_TERMS;
-      const extractedCode = data.code_snippet || editableCode;
-
-      const rawClips = Array.isArray(data.clips) && data.clips.length > 0 ? data.clips : [data];
-      const parsedClips: ClipData[] = rawClips.map((c: any, idx: number) => ({
-        clip_id: c.clip_id || `reel_${idx}`,
-        title: c.title || `${selectedFile.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ')} (Part ${idx + 1})`,
-        video_url: c.video_url || (idx === 0 ? data.video_url : ''),
-        source_video_path: c.source_video_path || data.source_video_path || '',
-        start_sec: Number(c.start_sec ?? 0),
-        end_sec: Number(c.end_sec ?? 30),
-        duration: Number(c.duration ?? 30),
-        transcript: c.transcript || data.transcript || '',
-        words: c.words || data.words || [],
-        transcript_words: c.transcript_words || data.transcript_words || [],
-        repaired_terms: c.repaired_terms && c.repaired_terms.length > 0 ? c.repaired_terms : finalRepairs,
-        code_snippet: c.code_snippet || extractedCode,
-        code_preview: c.code_preview || '',
-        hashtags: c.hashtags || data.hashtags || ['#coding', '#tech', '#softwareengineering'],
-        growth_pack: {
-          ...DEFAULT_GROWTH_PACK,
-          hook_title: `Master ${c.title || 'Core Architecture'} in 30 Seconds ⚡`,
-          pinned_code_comment: buildPinnedCodeComment(c.code_snippet || extractedCode),
-        },
-        vocal_energy_score: c.vocal_energy_score ?? 88.5,
-        screen_activity_score: c.screen_activity_score ?? 92.4,
-        bug2fix_detected: Boolean(c.is_bug_to_fix ?? true),
-        key_teaching_moment: true,
-        typing_hyperlapse_sec: 3.2,
-      }));
-
-      setClips(parsedClips);
-      setActiveClipIndex(0);
-      const primaryClip = parsedClips[0];
-      setClip(primaryClip);
-      setTrimStart(primaryClip.start_sec);
-      setTrimEnd(primaryClip.end_sec);
-      setTrimStartInput(String(primaryClip.start_sec));
-      setTrimEndInput(String(primaryClip.end_sec));
-      setEditableCode(primaryClip.code_snippet);
-      setGrowthPack(primaryClip.growth_pack);
-      setCacheBuster(Date.now());
+      applyProcessedData(data, selectedFile.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '));
     } catch (err: any) {
       setErrorMsg(err.message || 'Error processing video.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const applyProcessedData = (data: any, baseTitle: string) => {
+    const backendRepairs: RepairedTerm[] = (data.repaired_terms || []).map((t: any, idx: number) => ({
+      id: t.id || `crop_${idx}`,
+      raw_asr: t.raw_asr || t.raw || 'misheard term',
+      repaired_term: t.repaired_term || t.term || 'RepairedCode',
+      confidence: t.confidence ?? 0.95,
+      thumbnail: t.thumbnail || `/provenance/crop_${(idx % 10) + 1}.png`,
+      timestamp: t.timestamp ?? 12.0,
+      bbox: t.bbox,
+    }));
+
+    const finalRepairs = backendRepairs.length > 0 ? backendRepairs : DEMO_REPAIRED_TERMS;
+    const extractedCode = data.code_snippet || editableCode;
+
+    const rawClips = Array.isArray(data.clips) && data.clips.length > 0 ? data.clips : [data];
+    const parsedClips: ClipData[] = rawClips.map((c: any, idx: number) => ({
+      clip_id: c.clip_id || `reel_${idx}`,
+      title: c.title || `${baseTitle} (Part ${idx + 1})`,
+      video_url: c.video_url || (idx === 0 ? data.video_url : ''),
+      source_video_path: c.source_video_path || data.source_video_path || '',
+      start_sec: Number(c.start_sec ?? 0),
+      end_sec: Number(c.end_sec ?? 30),
+      duration: Number(c.duration ?? 30),
+      transcript: c.transcript || data.transcript || '',
+      words: c.words || data.words || [],
+      transcript_words: c.transcript_words || data.transcript_words || [],
+      repaired_terms: c.repaired_terms && c.repaired_terms.length > 0 ? c.repaired_terms : finalRepairs,
+      code_snippet: c.code_snippet || extractedCode,
+      code_preview: c.code_preview || '',
+      hashtags: c.hashtags || data.hashtags || ['#coding', '#tech', '#softwareengineering'],
+      growth_pack: {
+        ...DEFAULT_GROWTH_PACK,
+        hook_title: `Master ${c.title || 'Core Architecture'} in 30 Seconds ⚡`,
+        pinned_code_comment: buildPinnedCodeComment(c.code_snippet || extractedCode),
+      },
+      vocal_energy_score: c.vocal_energy_score ?? 88.5,
+      screen_activity_score: c.screen_activity_score ?? 92.4,
+      bug2fix_detected: Boolean(c.is_bug_to_fix ?? true),
+      key_teaching_moment: true,
+      typing_hyperlapse_sec: 3.2,
+      ocr_telemetry: data.ocr_telemetry,
+      candidate_highlights: data.candidate_highlights || data.candidate_clips,
+    }));
+
+    setClips(parsedClips);
+    setActiveClipIndex(0);
+    const primaryClip = parsedClips[0];
+    setClip(primaryClip);
+    setTrimStart(primaryClip.start_sec);
+    setTrimEnd(primaryClip.end_sec);
+    setTrimStartInput(String(primaryClip.start_sec));
+    setTrimEndInput(String(primaryClip.end_sec));
+    setEditableCode(primaryClip.code_snippet);
+    setGrowthPack(primaryClip.growth_pack);
+    setCacheBuster(Date.now());
+  };
+
+  const handleProcessSampleVideo = async (sampleId: string, sampleTitle?: string) => {
+    const resolvedTitle =
+      sampleTitle || SAMPLE_LECTURES.find((s) => s.id === sampleId)?.label || 'Sample Lecture';
+    setIsProcessing(true);
+    setProgress(15);
+    setProgressStage(`Processing sample (${resolvedTitle})...`);
+    setErrorMsg(null);
+
+    const timer = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 85) return prev;
+        if (prev === 30) setProgressStage('Running local faster-whisper ASR & phonetic grounding...');
+        if (prev === 60) setProgressStage('Compositing 9:16 layout & burning subtitles with FFmpeg...');
+        return prev + 15;
+      });
+    }, 1200);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/mode-a/process-sample-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sample_id: sampleId,
+          brand_kit: {
+            name: brandKit.name || 'TechSummit Academy',
+            primary_color: brandKit.primary_color || '#4F46E5',
+            logo_base64: brandKit.logo_base64 || brandKit.logo_path,
+          },
+        }),
+      });
+
+      clearInterval(timer);
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.detail || 'Sample video processing failed. Please check backend server.');
+      }
+
+      const data = await response.json();
+      setProgress(100);
+      setProgressStage('Finished!');
+      applyProcessedData(data, resolvedTitle);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error processing sample video.');
     } finally {
       setIsProcessing(false);
     }
@@ -376,7 +475,7 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
     const code = overrideCode !== undefined ? overrideCode : editableCode;
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/mode-a/rerender-clip', {
+      const response = await fetch(`${API_BASE}/api/v1/mode-a/rerender-clip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -541,6 +640,89 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
             </div>
           </div>
 
+          {/* Pre-loaded Sample Lectures Dropdown & 1-Click Testing */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                  <Sparkles className="size-3.5 text-indigo-600" />
+                  Pre-loaded Sample Lectures (1-Click Instant Test)
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Select a WhatsApp benchmark recording for instant hardware-accelerated processing
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedSampleId}
+                  onChange={(e) => {
+                    setSelectedSampleId(e.target.value);
+                    setErrorMsg(null);
+                  }}
+                  disabled={isProcessing}
+                  className="text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer min-w-[240px]"
+                >
+                  {SAMPLE_LECTURES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label} ({s.duration})
+                    </option>
+                  ))}
+                </select>
+
+                <Button
+                  type="button"
+                  disabled={!selectedSampleId || isProcessing}
+                  onClick={() => handleProcessSampleVideo(selectedSampleId)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs h-9 px-3.5 gap-1.5 shrink-0 shadow-xs"
+                >
+                  <Zap className="size-3.5 text-amber-300" />
+                  1-Click Process
+                </Button>
+              </div>
+            </div>
+
+            {/* Quick 1-Click Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-1 border-t border-slate-200/60">
+              {SAMPLE_LECTURES.map((sample) => {
+                const isSelected = selectedSampleId === sample.id;
+                return (
+                  <button
+                    key={sample.id}
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => {
+                      setSelectedSampleId(sample.id);
+                      handleProcessSampleVideo(sample.id, sample.label);
+                    }}
+                    className={`flex items-center justify-between p-2 rounded-lg border transition-all text-left group cursor-pointer disabled:opacity-50 shadow-2xs ${
+                      isSelected
+                        ? 'border-indigo-400 bg-indigo-50/60 ring-1 ring-indigo-400/30'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex flex-col min-w-0 pr-1.5">
+                      <span className="text-[11px] font-semibold text-slate-800 group-hover:text-indigo-600 truncate">
+                        {sample.label}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono truncate">{sample.tag}</span>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={`text-[9px] px-1.5 py-0 h-4 shrink-0 font-mono ${
+                        isSelected
+                          ? 'border-indigo-200 bg-indigo-100/60 text-indigo-700'
+                          : 'border-slate-200 bg-slate-50 text-slate-600 group-hover:border-indigo-200 group-hover:text-indigo-600'
+                      }`}
+                    >
+                      {sample.badge}
+                    </Badge>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {errorMsg && (
             <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
               <AlertCircle className="size-4 shrink-0" />
@@ -566,8 +748,14 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
               ⚡ Intel Core Ultra 5 125H + Arc QSV • ₹0.00 Cloud Billed
             </span>
             <Button
-              onClick={handleProcessVideo}
-              disabled={!selectedFile || isProcessing}
+              onClick={() => {
+                if (selectedFile) {
+                  handleProcessVideo();
+                } else if (selectedSampleId) {
+                  handleProcessSampleVideo(selectedSampleId);
+                }
+              }}
+              disabled={(!selectedFile && !selectedSampleId) || isProcessing}
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs h-9 px-5 gap-2 shadow-xs"
             >
               {isProcessing ? (
@@ -585,6 +773,18 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
           </div>
         </CardContent>
       </Card>
+
+      {/* 5-Node Dynamic Data-Flow Pipeline Bar (Mounted right above results view) */}
+      <DataFlowPipeline
+        telemetry={clip?.ocr_telemetry}
+        candidateHighlights={clip?.candidate_highlights || clips}
+        isProcessing={isProcessing}
+        processingStage={progressStage}
+        sourceMeta={{
+          resolution: clip ? '1920×1080 (16:9)' : undefined,
+          duration: clip?.duration,
+        }}
+      />
 
       {/* Initial / Empty State Prompt */}
       {!clip && (
@@ -705,14 +905,14 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
                   key={`${clip.video_url}?t=${cacheBuster}`}
                   controls
                   playsInline
-                  src={`http://localhost:8000${clip.video_url}${clip.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
-                  className="w-full h-full object-cover"
+                  src={`${API_BASE}${clip.video_url}${clip.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
+                  className="w-full h-full object-cover [&:fullscreen]:object-contain"
                 />
               </div>
 
               {/* Download MP4 Button */}
               <a
-                href={`http://localhost:8000${clip.video_url}${clip.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
+                href={`${API_BASE}${clip.video_url}${clip.video_url.includes('?') ? '&' : '?'}t=${cacheBuster}`}
                 download={`snipshot_reel_${clip.clip_id}.mp4`}
                 target="_blank"
                 rel="noreferrer"
@@ -1017,7 +1217,7 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
                       clip.repaired_terms.map((item) => {
                         const thumbUrl = item.thumbnail.startsWith('http')
                           ? item.thumbnail
-                          : `http://localhost:8000${item.thumbnail.startsWith('/') ? '' : '/'}${item.thumbnail}`;
+                          : `${API_BASE}${item.thumbnail.startsWith('/') ? '' : '/'}${item.thumbnail}`;
 
                         return (
                           <div
@@ -1033,7 +1233,7 @@ export const ModeAStudio: React.FC<ModeAStudioProps> = ({
                                   alt="Actual OCR Proof from Video"
                                   className="h-10 w-24 object-cover group-hover:scale-105 transition-transform"
                                   onError={(e) => {
-                                    (e.target as HTMLImageElement).src = 'http://localhost:8000/provenance/crop_1.png';
+                                    (e.target as HTMLImageElement).src = `${API_BASE}/provenance/crop_1.png`;
                                   }}
                                 />
                                 <span className="absolute bottom-0.5 right-0.5 bg-black/70 text-[8px] font-mono text-cyan-300 px-1 rounded">

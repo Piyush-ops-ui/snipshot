@@ -1,13 +1,13 @@
 """
 Fast Native FFmpeg Compositor for SnipShot.
 Renders 1080x1920 9:16 vertical Reels in 2 to 4 seconds:
-1. Renders ONE single static 1080x1920 RGBA PNG (overlay.png) with Pillow + Pygments:
-   - Top Header (0 to 140px: Brand Color, Institute Name, Logo badge)
-   - Upper Code Spotlight Card (150 to 780px: Syntax-highlighted code with 26px monospace font)
-   - Transparent Middle Window (790 to 1470px: alpha = 0 where the scaled full lecture video shows through)
-   - Bottom Caption Bar (1480 to 1920px: footer background + QR code stamp)
+1. Clean 9:16 Video Layout:
+   - Top Header (0 to 130px: Brand Color, Institute Name, Logo, Active Accent Badge)
+   - Upper-Middle Code Spotlight Card (130 to 720px: Dark VS Code-style card with traffic-light dots, line numbers, and 26px monospace code)
+   - Lower-Middle Video Window (720 to 1520px: Single, high-clarity 1.35x Smart Active-Window Crop of instructor's screen, height = 800px)
+   - Bottom Caption Bar (1520 to 1920px: Synchronized karaoke subtitles on left + full uncut Scannable QR Code at x=900, y=1730 with 130x130 size and 'SCAN CODE' label)
 2. Generates an Advanced SubStation Alpha (.ass) subtitle file with word-by-word karaoke styling.
-3. Runs ONE single native FFmpeg command with filter_complex to scale full video, overlay, burn subtitles, and encode.
+3. Runs ONE single native FFmpeg command with filter_complex to scale video, overlay, burn subtitles, and encode.
 """
 
 import os
@@ -110,19 +110,19 @@ class FastNativeCompositor:
 
     WIDTH = 1080
     HEIGHT = 1920
-    HEADER_H = 140
-    CODE_Y0 = 150
-    CODE_Y1 = 780
-    VIDEO_Y0 = 790
-    VIDEO_H = 680       # 790 to 1470 (Aspect 16:9 fits 1080x608 inside 1080x680)
-    FOOTER_Y0 = 1480
-    FOOTER_H = 440      # 1480 to 1920
+    HEADER_H = 130
+    CODE_Y0 = 130
+    CODE_Y1 = 720
+    VIDEO_Y0 = 720
+    VIDEO_H = 800       # 720 to 1520 (Single 1.35x active crop 1080x800)
+    FOOTER_Y0 = 1520
+    FOOTER_H = 400      # 1520 to 1920
 
     def __init__(self):
         self.title_font = get_ui_font(26, bold=True)
         self.badge_font = get_ui_font(18, bold=True)
-        self.code_font = get_monospace_font(24, bold=False)
-        self.bold_code_font = get_monospace_font(24, bold=True)
+        self.code_font = get_monospace_font(26, bold=False)
+        self.bold_code_font = get_monospace_font(26, bold=True)
 
     def render_overlay_png(
         self,
@@ -138,10 +138,10 @@ class FastNativeCompositor:
     ) -> str:
         """
         Creates ONE single static 1080x1920 RGBA image:
-        - 0..140: Top Brand Header with 4 Pedagogical Archetypes (standard_spotlight, bug_hunter, vs_battle, predict_output)
-        - 150..780: Upper Code Spotlight Card (real readable code)
-        - 790..1470: TRANSPARENT (alpha = 0) for the 1.4x zoom cropped video
-        - 1480..1920: Bottom Caption & Outro Bar with 130x130 QR code at (910, 1740)
+        - 0..130: Top Brand Header with 4 Pedagogical Archetypes
+        - 130..720: Upper Code Spotlight Card (real readable code with 26px monospace font)
+        - 720..1520: TRANSPARENT (alpha = 0) for the 1.35x zoom cropped video (height = 800px)
+        - 1520..1920: Bottom Caption & Outro Bar with 130x130 QR code at (900, 1730)
         """
         if not output_path:
             output_path = str(CACHE_DIR / f"overlay_{int(time.time() * 1000)}.png")
@@ -152,8 +152,7 @@ class FastNativeCompositor:
 
         brand_rgb = self._hex_to_rgb(brand_color)
 
-        # 1. TOP BRAND HEADER (0 to 140px)
-        # Template Archetype Archetype Selection (Weapon 6 & 7)
+        # 1. TOP BRAND HEADER (0 to 130px)
         arch = str(getattr(template_archetype, "value", template_archetype) or "standard_spotlight").lower()
 
         if "bug_hunter" in arch or "bug" in arch:
@@ -190,30 +189,30 @@ class FastNativeCompositor:
             subtitle_text = "SNIPSHOT 9:16 - SCREEN-GROUNDED CODE REEL"
 
         draw.rectangle([(0, 0), (self.WIDTH, self.HEADER_H)], fill=header_bg)
-        draw.line([(0, self.HEADER_H - 3), (self.WIDTH, self.HEADER_H - 3)], fill=header_line, width=3)
+        draw.line([(0, self.HEADER_H - 2), (self.WIDTH, self.HEADER_H - 2)], fill=header_line, width=2)
 
-        # Logo / Shell icon capsule
-        draw.rounded_rectangle([(32, 32), (96, 96)], radius=12, fill=(30, 41, 59, 255), outline=header_line, width=2)
+        # Logo / Shell icon capsule (64x64, vertically centered in 130px)
+        draw.rounded_rectangle([(32, 28), (96, 92)], radius=12, fill=(30, 41, 59, 255), outline=header_line, width=2)
         logo_pasted = False
         if logo_base64:
             try:
                 raw_b64 = logo_base64.split(",", 1)[1] if "," in logo_base64 else logo_base64
                 logo_img = Image.open(io.BytesIO(base64.b64decode(raw_b64))).convert("RGBA")
-                logo_img.thumbnail((56, 56), Image.Resampling.LANCZOS)
+                logo_img.thumbnail((54, 54), Image.Resampling.LANCZOS)
                 lw, lh = logo_img.size
                 lx = 32 + (64 - lw) // 2
-                ly = 32 + (64 - lh) // 2
+                ly = 28 + (64 - lh) // 2
                 img.paste(logo_img, (lx, ly), logo_img)
                 logo_pasted = True
             except Exception:
                 pass
         if not logo_pasted:
-            draw.text((44, 46), sanitize_for_render(">_"), fill=brand_rgb + (255,), font=self.title_font)
+            draw.text((44, 42), sanitize_for_render(">_"), fill=brand_rgb + (255,), font=self.title_font)
 
         # Institute Name & Subtitle
         name_text = sanitize_for_render((institute_name or "SNIPSHOT ACADEMY").upper())
-        draw.text((114, 40), name_text, fill=(255, 255, 255, 255), font=self.title_font)
-        draw.text((116, 78), sanitize_for_render(subtitle_text), fill=(148, 163, 184, 255), font=self.badge_font)
+        draw.text((114, 34), name_text, fill=(255, 255, 255, 255), font=self.title_font)
+        draw.text((116, 74), sanitize_for_render(subtitle_text), fill=(148, 163, 184, 255), font=self.badge_font)
 
         # Verified Tag / Archetype Badge
         badge_text = sanitize_for_render(badge_text)
@@ -226,34 +225,35 @@ class FastNativeCompositor:
         bw = max(218, tw + 28)
         bx1 = self.WIDTH - 32
         bx0 = bx1 - bw
-        draw.rounded_rectangle([(bx0, 42), (bx1, 92)], radius=10, fill=badge_fill, outline=badge_border, width=2)
+        draw.rounded_rectangle([(bx0, 38), (bx1, 88)], radius=10, fill=badge_fill, outline=badge_border, width=2)
         tx = bx0 + (bw - tw) // 2
-        ty = 42 + (50 - th) // 2
+        ty = 38 + (50 - th) // 2
         draw.text((tx, ty), badge_text, fill=badge_color, font=self.badge_font)
 
         # Weapon 9: Dead-Air Hyperlapse Badge HUD
         if hyperlapse:
-            draw.rounded_rectangle([(self.WIDTH - 350, 105), (self.WIDTH - 40, 145)], radius=10, fill=(15, 23, 42, 255), outline=(0, 242, 254, 255), width=2)
-            draw.text((self.WIDTH - 330, 115), sanitize_for_render("[2.5x] HYPERLAPSE"), fill=(0, 242, 254, 255), font=self.badge_font)
+            draw.rounded_rectangle([(self.WIDTH - 350, 92), (self.WIDTH - 40, 126)], radius=8, fill=(15, 23, 42, 255), outline=(0, 242, 254, 255), width=2)
+            draw.text((self.WIDTH - 330, 98), sanitize_for_render("[2.5x] HYPERLAPSE"), fill=(0, 242, 254, 255), font=self.badge_font)
 
-        # 2. UPPER CODE SPOTLIGHT CARD (150 to 780px)
+        # 2. UPPER CODE SPOTLIGHT CARD (130 to 720px)
         card_x0, card_x1 = 28, self.WIDTH - 28
-        card_y0, card_y1 = self.CODE_Y0, self.CODE_Y1
+        card_y0, card_y1 = 138, 712
 
         # Outer card background
         draw.rounded_rectangle([(card_x0, card_y0), (card_x1, card_y1)], radius=16, fill=(24, 24, 37, 255), outline=(51, 65, 85, 255), width=2)
 
-        # macOS style window title bar
+        # VS Code / macOS style window title bar
         draw.rounded_rectangle([(card_x0, card_y0), (card_x1, card_y0 + 44)], radius=16, fill=(17, 17, 27, 255))
         draw.rectangle([(card_x0, card_y0 + 20), (card_x1, card_y0 + 44)], fill=(17, 17, 27, 255))
-        draw.ellipse([(card_x0 + 16, card_y0 + 14), (card_x0 + 28, card_y0 + 26)], fill=(243, 139, 168, 255))
-        draw.ellipse([(card_x0 + 36, card_y0 + 14), (card_x0 + 48, card_y0 + 26)], fill=(249, 226, 175, 255))
-        draw.ellipse([(card_x0 + 56, card_y0 + 14), (card_x0 + 68, card_y0 + 26)], fill=(166, 227, 161, 255))
+        # Traffic light dots (Red, Yellow, Green)
+        draw.ellipse([(card_x0 + 16, card_y0 + 16), (card_x0 + 28, card_y0 + 28)], fill=(255, 95, 86, 255))
+        draw.ellipse([(card_x0 + 36, card_y0 + 16), (card_x0 + 48, card_y0 + 28)], fill=(255, 189, 46, 255))
+        draw.ellipse([(card_x0 + 56, card_y0 + 16), (card_x0 + 68, card_y0 + 28)], fill=(39, 201, 63, 255))
         draw.text((card_x0 + 84, card_y0 + 12), sanitize_for_render(f"code_spotlight.{language}"), fill=(148, 163, 184, 255), font=self.badge_font)
 
-        # Code syntax lines (guaranteed monospace DejaVu font)
+        # Code syntax lines with 26px monospace font
         clean_snippet = sanitize_for_render(code_snippet.strip() if code_snippet else "# Implementation Spotlight\nprint('Hello SnipShot')")
-        lines = clean_snippet.split("\n")[:14]
+        lines = clean_snippet.split("\n")[:12]
         line_y = card_y0 + 56
 
         # Determine focal line to highlight
@@ -268,29 +268,29 @@ class FastNativeCompositor:
             # Active execution indicator for focal line
             if i == focal_idx and len(lines) > 1:
                 draw.rounded_rectangle(
-                    [(card_x0 + 12, line_y - 2), (card_x1 - 12, line_y + 34)],
+                    [(card_x0 + 12, line_y - 2), (card_x1 - 12, line_y + 36)],
                     radius=6,
                     fill=(brand_rgb[0] // 5, brand_rgb[1] // 5, brand_rgb[2] // 5, 130),
                     outline=brand_rgb + (140,),
                     width=1,
                 )
                 # Glowing execution arrow in brand color
-                draw.text((card_x0 + 20, line_y), ">", fill=brand_rgb + (255,), font=self.code_font)
+                draw.text((card_x0 + 16, line_y), ">", fill=brand_rgb + (255,), font=self.code_font)
 
             # Syntax colorized tokens with line numbers on the left margin
-            self._draw_simple_syntax_line(draw, line, card_x0 + 64, line_y, brand_color, line_num=i + 1)
-            line_y += 38
+            self._draw_simple_syntax_line(draw, line, card_x0 + 68, line_y, brand_color, line_num=i + 1)
+            line_y += 40
 
-        # 3. MIDDLE REGION (790 to 1470px) IS LEFT TRANSPARENT (ALPHA = 0)!
-        # (This is where the native FFmpeg filtergraph scales the 1.4x zoom cropped video)
+        # 3. LOWER-MIDDLE REGION (720 to 1520px) IS LEFT TRANSPARENT (ALPHA = 0)!
+        # (This is where the native FFmpeg filtergraph scales the single 1.35x active-window crop, height = 800px)
         draw.line([(0, self.VIDEO_Y0), (self.WIDTH, self.VIDEO_Y0)], fill=(51, 65, 85, 255), width=2)
         draw.line([(0, self.FOOTER_Y0), (self.WIDTH, self.FOOTER_Y0)], fill=(51, 65, 85, 255), width=2)
 
-        # 4. BOTTOM CAPTION & OUTRO BAR (1480 to 1920px)
+        # 4. BOTTOM CAPTION & OUTRO BAR (1520 to 1920px)
         draw.rectangle([(0, self.FOOTER_Y0), (self.WIDTH, self.HEIGHT)], fill=(15, 23, 42, 255))
         draw.line([(0, self.FOOTER_Y0), (self.WIDTH, self.FOOTER_Y0)], fill=brand_rgb + (255,), width=2)
 
-        # Outro QR Code in bottom-right corner (Direct-to-clipboard code text)
+        # Full uncut Scannable QR Code at x=900, y=1730 with 130x130 size and "SCAN CODE" label
         try:
             import qrcode
             qr = qrcode.QRCode(box_size=4, border=1)
@@ -299,12 +299,26 @@ class FastNativeCompositor:
             qr.make(fit=True)
             qr_img = qr.make_image(fill_color="#0F172A", back_color="#FFFFFF").convert("RGBA")
             qr_img = qr_img.resize((130, 130), Image.Resampling.NEAREST)
-            img.paste(qr_img, (910, 1740))
-            draw.text((880, 1712), sanitize_for_render("SCAN TO COPY CODE"), fill=(255, 255, 255, 255), font=self.badge_font)
+            img.paste(qr_img, (900, 1730))
+            label_text = sanitize_for_render("SCAN CODE")
+            try:
+                l_bbox = self.badge_font.getbbox(label_text)
+                lw = l_bbox[2] - l_bbox[0]
+            except Exception:
+                lw = len(label_text) * 11
+            lx = 900 + (130 - lw) // 2
+            draw.text((lx, 1700), label_text, fill=(255, 255, 255, 255), font=self.badge_font)
         except Exception:
             try:
-                draw.rectangle([(910, 1740), (1040, 1870)], fill=(255, 255, 255, 255), outline=(56, 189, 248, 255), width=2)
-                draw.text((880, 1712), sanitize_for_render("SCAN TO COPY CODE"), fill=(255, 255, 255, 255), font=self.badge_font)
+                draw.rectangle([(900, 1730), (1030, 1860)], fill=(255, 255, 255, 255), outline=(56, 189, 248, 255), width=2)
+                label_text = sanitize_for_render("SCAN CODE")
+                try:
+                    l_bbox = self.badge_font.getbbox(label_text)
+                    lw = l_bbox[2] - l_bbox[0]
+                except Exception:
+                    lw = len(label_text) * 11
+                lx = 900 + (130 - lw) // 2
+                draw.text((lx, 1700), label_text, fill=(255, 255, 255, 255), font=self.badge_font)
             except Exception:
                 pass
 
@@ -425,7 +439,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,50,&H0000D7FF,&H00FFFFFF,&H000F172A,&H80000000,1,0,0,0,100,100,0,0,1,4,0,2,60,60,150,1
+Style: Default,DejaVu Sans,48,&H0000D7FF,&H00FFFFFF,&H000F172A,&H80000000,1,0,0,0,100,100,0,0,1,4,0,1,60,220,150,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -483,17 +497,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         Executes ONE SINGLE native FFmpeg filtergraph:
         - Slices [start_sec, start_sec + duration]
-        - Smart 1.4x Active-Region Zoom Crop (BUG 3 & Weapon 2):
-          Middle Video: source width 1920, height 1080.
-          Crop width = 1370 (1920 / 1.4), crop height = 862 (1370 * 680 / 1080).
-          Center crop on motion centroid cx, cy:
-          cx = max(0, min(1920 - 1370, crop_x))
-          cy = max(0, min(1080 - 862, crop_y))
-          Filtergraph scales 1370x862 to 1080x680, perfectly filling the middle window
-          with ZERO black pillar/letterbox bars, making VS Code and GitHub Desktop text 1.4x larger and readable!
+        - Lower-Middle (720–1520px): Single, high-clarity 1.35x Smart Active-Window Crop of instructor's screen (height = 800px)
         - Supports safe_cohort_blur (Weapon 5).
         - Overlays overlay_png (code card on top, footer at bottom).
-        - Burns .ass word karaoke subtitles.
+        - Burns .ass word karaoke subtitles on left of footer (Alignment=1, MarginL=60, MarginR=220, MarginV=150).
         - Encodes via ultrafast libx264 in 2 to 4 seconds.
         """
         # Probe source resolution
@@ -523,7 +530,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             except Exception:
                 pass
 
-        # 1.35x Smart Active Zoom Crop
+        # 1.35x Smart Active Zoom Crop (Lower-Middle: 720–1520px, height = 800px)
         crop_w = int(source_w / 1.35)
         crop_h = int(crop_w * self.VIDEO_H / self.WIDTH)
         if crop_h > source_h:
@@ -548,7 +555,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         filter_graph = (
             f"{middle_chain}"
             f"[vbase][1:v]overlay=0:0[vover];"
-            f"[vover]subtitles='{ass_subtitles_path}':force_style='Alignment=2,MarginV=140'[vout]"
+            f"[vover]subtitles='{ass_subtitles_path}':force_style='Alignment=1,MarginL=60,MarginR=220,MarginV=150'[vout]"
         )
 
         cmd = [
@@ -621,8 +628,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # PRESERVE LEADING WHITESPACE! Measure leading spaces:
         leading_spaces = len(line) - len(line.lstrip(" "))
-        # Start drawing tokens from x + leading_spaces * 14
-        cur_x = x + leading_spaces * 14
+        space_w = self.code_font.getlength(" ") if hasattr(self.code_font, "getlength") else 16.0
+        cur_x = x + int(leading_spaces * space_w)
         content = line.lstrip(" ")
 
         # Comments
@@ -643,7 +650,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         words = content.split(" ")
         for w in words:
             if not w:
-                cur_x += 14
+                cur_x += int(space_w)
                 continue
 
             clean_w = w.strip("():,;{}\"'<>/!")
@@ -669,14 +676,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 attr_name = w[:eq_idx]
                 attr_val = w[eq_idx:]
                 draw.text((cur_x, y), sanitize_for_render(attr_name), fill=(250, 189, 47, 255), font=self.code_font)
-                cur_x += len(attr_name) * 14
+                cur_x += int(self.code_font.getlength(attr_name) if hasattr(self.code_font, "getlength") else len(attr_name) * space_w)
                 draw.text((cur_x, y), sanitize_for_render(attr_val + " "), fill=(166, 227, 161, 255), font=self.code_font)
-                cur_x += len(attr_val + " ") * 14
+                cur_x += int(self.code_font.getlength(attr_val + " ") if hasattr(self.code_font, "getlength") else len(attr_val + " ") * space_w)
                 continue
             else:
                 color = (241, 245, 249, 255)  # Crisp light slate
             draw.text((cur_x, y), sanitize_for_render(w + " "), fill=color, font=self.code_font)
-            cur_x += len(w + " ") * 14
+            cur_x += int(self.code_font.getlength(w + " ") if hasattr(self.code_font, "getlength") else len(w + " ") * space_w)
 
     def _hex_to_rgb(self, h: str) -> Tuple[int, int, int]:
         h = h.lstrip("#")

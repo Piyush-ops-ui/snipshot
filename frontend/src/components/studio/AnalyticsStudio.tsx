@@ -18,6 +18,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { API_BASE } from '@/config/api';
 
 interface BanditWeights {
   w1: number; // Audio RMS Prosody
@@ -65,7 +66,7 @@ export const AnalyticsStudio: React.FC = () => {
   // Fetch initial weights from backend
   const fetchWeights = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/v1/telemetry/weights');
+      const res = await fetch(`${API_BASE}/api/v1/telemetry/weights`);
       if (res.ok) {
         const data = await responseJson(res);
         if (data.weights) {
@@ -100,7 +101,7 @@ export const AnalyticsStudio: React.FC = () => {
   const handleSimulateFeedback = async () => {
     setIsSimulating(true);
     try {
-      const res = await fetch('http://localhost:8000/api/v1/telemetry/simulate-feedback', {
+      const res = await fetch(`${API_BASE}/api/v1/telemetry/simulate-feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
