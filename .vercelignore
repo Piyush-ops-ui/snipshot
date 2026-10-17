@@ -1,0 +1,14 @@
+# Ignore backend, dependencies, virtualenvs, local caches and git for Vercel
+backend/
+data/
+benchmarks/
+scripts/
+.venv/
+node_modules/
+**/node_modules/
+.git/
+.github/
+**/__pycache__/
+*.pyc
+*.onnx
+*.bin
