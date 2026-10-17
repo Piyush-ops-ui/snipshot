@@ -336,7 +336,7 @@ class ReelGenerator:
 
     def _tokenize_code_snippet(self, code_snippet: Optional[str]) -> List[List[Tuple[str, str]]]:
         """Tokenizes code snippet with Pygments for high-contrast syntax highlighting."""
-        snippet = code_snippet or "const [count, setCount] = useState(0);\nuseEffect(() => {\n  console.log('Mounted:', count);\n}, [count]);"
+        snippet = code_snippet or "# Highlight Code Snippet\nprint('SnipShot Spotlight')"
         lines = snippet.strip().split("\n")[:11]
 
         tokenized_lines = []

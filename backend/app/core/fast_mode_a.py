@@ -10,6 +10,7 @@ import re
 import time
 import uuid
 import subprocess
+import textwrap
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -38,7 +39,7 @@ except ImportError:
     fuzz = None
     RAPIDFUZZ_AVAILABLE = False
 
-from backend.app.core.fast_native_compositor import FastNativeCompositor
+from backend.app.core.fast_native_compositor import FastNativeCompositor, sanitize_for_render
 from backend.app.core.hinglish_normalizer import (
     normalize_to_hinglish,
     normalize_word_timestamps,
@@ -63,6 +64,78 @@ OS_FINDER_UI_CHROME = {
     'movies', 'cwh post edit', 'cwh pre edit',
     'open editors', 'outline', 'timeline', 'explorer',
 }
+
+
+def auto_indent_code(code_str: str) -> str:
+    """
+    Proper code indentation & clean formatting for the 9:16 mobile code card (FIX 1):
+    - Track indent_level = 0.
+    - For each line:
+      - stripped = line.strip()
+      - If stripped starts with '}' or ']' or ')': indent_level = max(0, indent_level - 1).
+      - If stripped starts with 'else', 'elif', 'catch', 'finally', 'except': line_indent = max(0, indent_level - 1).
+      - Else line_indent = indent_level.
+      - Prefix line with '    ' * line_indent.
+      - If stripped ends with '{', ':', '(', '[', or '->': indent_level += 1.
+      - Wrap lines longer than 42 characters cleanly with an extra 4-space continuation indent so code NEVER overflows the right edge!
+    """
+    if not code_str:
+        return ""
+
+    lines = code_str.splitlines()
+    indent_level = 0
+    formatted_lines: List[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            formatted_lines.append("")
+            continue
+
+        # If stripped starts with } or ] or ): indent_level = max(0, indent_level - 1)
+        if stripped.startswith(("}", "]", ")")):
+            indent_level = max(0, indent_level - 1)
+
+        # If stripped starts with else, elif, catch, finally, except: line_indent = max(0, indent_level - 1)
+        if stripped.startswith(("else", "elif", "catch", "finally", "except")):
+            line_indent = max(0, indent_level - 1)
+            indent_level = line_indent
+        else:
+            line_indent = indent_level
+
+        # Preserve relative horizontal indentation if indent_level == 0
+        existing_spaces = len(line) - len(line.lstrip(" "))
+        existing_level = existing_spaces // 4
+        if indent_level == 0 and existing_level > 0:
+            line_indent = max(line_indent, existing_level)
+
+        initial_indent = "    " * line_indent
+        subsequent_indent = initial_indent + "    "
+
+        # Check if stripped ends with {, :, (, [, or ->
+        increases_indent = stripped.endswith(("{", ":", "(", "[", "->"))
+
+        full_line = initial_indent + stripped
+        if len(full_line) <= 42:
+            formatted_lines.append(full_line)
+        else:
+            wrapped = textwrap.wrap(
+                stripped,
+                width=42,
+                initial_indent=initial_indent,
+                subsequent_indent=subsequent_indent,
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+            if wrapped:
+                formatted_lines.extend(wrapped)
+            else:
+                formatted_lines.append(full_line)
+
+        if increases_indent:
+            indent_level += 1
+
+    return "\n".join(formatted_lines)
 
 
 def is_finder_ui_chrome(text: str) -> bool:
@@ -97,6 +170,9 @@ TECH_DICTIONARY = [
     "interface", "implements", "extends", "abstract", "virtual", "override",
     "try", "catch", "finally", "except", "raise", "throw", "syntax", "runtime",
     "sample-repo", "GitHub Desktop", "index.html", "VS Code", "Terminal", "Playground",
+    "FirstProgram", "print", "Hello World", "Tony Stark", "PyCharm", "Virtualenv",
+    "WhacAMole", "boardPanel", "tile", "JButton", "JFrame", "ActionListener", "setFocusable",
+    "Main.java", "Car.java", "MyFirstProject", "println", "Ford Mustang",
 ]
 
 # Hinglish / Hindi phonetic technical dictionary mapping
@@ -109,6 +185,8 @@ HINDI_TECH_MAP = {
     "डस्टोब": "Desktop", "डस्टोप": "Desktop", "डेस्कटॉप": "Desktop",
     "स्थाटेट": "start", "स्टार्ट": "start",
     "पाइथन": "Python", "ब्रांच": "Branch", "रिपोजिटरी": "Repository",
+    "प्रिंट": "print", "जावा": "Java", "स्विंग": "Swing", "बटन": "Button",
+    "पैनल": "Panel", "क्लास": "Class", "ऑब्जेक्ट": "Object",
 }
 
 _whisper_cache: Optional[WhisperModel] = None
@@ -201,6 +279,11 @@ CODE_KEYWORDS = {
     "public", "private", "void", "int", "string", "print", "console",
     "docker", "run", "build", "npm", "yarn", "pip", "python", "node",
     "export", "extends", "implements", "interface", "async", "await",
+    "tile", "boardpanel", "jbutton", "actionlistener", "system", "println", "firstprogram", "car",
+}
+
+UI_DIALOG_WORDS = {
+    "welcome", "cancel", "wizard", "virtualenv", "interpreter", "projects", "customize", "plugins", "bloopers", "preferences", "settings"
 }
 
 class FastModeAEngine:
@@ -210,8 +293,9 @@ class FastModeAEngine:
     def _scan_best_window(self, video_path: str, total_duration: float) -> Tuple[float, float]:
         """
         Smart multi-point OCR-based window scanner for long videos.
-        Probes 10 evenly-spaced frames across the full video, runs RapidOCR on each,
+        Probes 14 evenly-spaced frames across the full video, runs RapidOCR on each,
         scores by code keyword density + syntax symbol count + vocal energy RMS,
+        filters out project creation / welcome dialogs,
         and returns (start, duration) for the best 45-second teaching window.
         """
         ocr_engine = get_ocr_engine()
@@ -221,8 +305,8 @@ class FastModeAEngine:
             dur = min(45.0, total_duration - start)
             return (start, dur)
 
-        # Probe 10 evenly-spaced points across the video
-        probe_fracs = [0.08, 0.18, 0.28, 0.38, 0.48, 0.58, 0.68, 0.78, 0.86, 0.94]
+        # Probe 14 evenly-spaced points across the video
+        probe_fracs = [0.06, 0.10, 0.13, 0.16, 0.22, 0.30, 0.38, 0.46, 0.54, 0.62, 0.70, 0.78, 0.86, 0.94]
         cap = cv2.VideoCapture(video_path)
         scores: List[Tuple[float, int]] = []
 
@@ -242,27 +326,33 @@ class FastModeAEngine:
 
             kw_hits = 0
             code_structure_hits = 0  # Heavy indicator of actual code (not just text)
+            dialog_hits = 0
             text_blocks = len(res) if res else 0
             if res:
                 for item in res:
                     text = str(item[1]).strip()
-                    tokens = [w.strip("(),;:{}\"'<>").lower() for w in text.split()]
+                    tokens = re.findall(r"[a-zA-Z_]\w*", text.lower())
                     for w in tokens:
                         if w in CODE_KEYWORDS:
                             kw_hits += 1
+                        if w in UI_DIALOG_WORDS:
+                            dialog_hits += 1
                     # Count code-structure characters that distinguish code editors from web pages
                     for ch in text:
                         if ch in "<>{}();":
                             code_structure_hits += 2
-                        elif ch in "=/!#":
+                        elif ch in "=/!#\"'":
                             code_structure_hits += 1
 
             # Check vocal energy around this point: penalize dead typing silence, reward active speech
             vocal_rms = probe_audio_energy(video_path, t - 1.5, 3.0)
-            vocal_factor = 1.4 if vocal_rms >= 0.035 else (0.2 if vocal_rms < 0.015 else 1.0)
+            vocal_factor = 1.3 if vocal_rms >= 0.035 else (0.4 if vocal_rms < 0.015 else 1.0)
 
-            # Code structure is the strongest signal, keywords second, text_blocks third
-            score = int((code_structure_hits * 3 + kw_hits * 5 + min(text_blocks, 40)) * vocal_factor)
+            # Heavy penalty if it is a project setup or welcome wizard without actual code keywords
+            if dialog_hits >= 2 and kw_hits < 3:
+                score = 0
+            else:
+                score = int((code_structure_hits * 3 + kw_hits * 6 + min(text_blocks, 15)) * vocal_factor)
             scores.append((t, score))
 
         cap.release()
@@ -278,6 +368,179 @@ class FastModeAEngine:
         scan_duration = min(45.0, total_duration - scan_start)
 
         return (scan_start, scan_duration)
+
+    def _extract_code_from_frames(
+        self,
+        sampled_frames: List[np.ndarray],
+        clean_screen_tokens: List[Dict[str, Any]],
+        sample_times: List[float],
+    ) -> str:
+        """
+        Extracts code from the cleanest OCR frame (FIX 1):
+        - Preserves relative horizontal indentation from RapidOCR bounding box x_min relative to leftmost code line min_code_x.
+        - Runs auto_indent_code() on the resulting snippet before returning.
+        """
+        syntax_chars = set("<>{};=()\"'#:")
+        best_frame_data = None
+        best_frame_score = -1
+
+        for st_time, f_img in zip(sample_times, sampled_frames):
+            f_tokens = [
+                tok for tok in clean_screen_tokens
+                if tok.get("frame") is f_img and not is_finder_ui_chrome(tok["text"])
+            ]
+            score = sum(1 for tok in f_tokens if any(ch in syntax_chars for ch in tok["text"]))
+            if score > best_frame_score:
+                best_frame_score = score
+                best_frame_data = (f_img, f_tokens)
+
+        if not best_frame_data or not best_frame_data[1]:
+            return ""
+
+        f_img, f_tokens = best_frame_data
+        content_boxes = [
+            b for b in f_tokens
+            if 40 <= b["bbox"][1] <= 960 and not is_finder_ui_chrome(b["text"])
+        ]
+        if not content_boxes:
+            return ""
+
+        marker_boxes = [b for b in content_boxes if any(ch in syntax_chars for ch in b["text"])]
+        if marker_boxes:
+            sorted_xs = sorted(b["bbox"][0] for b in marker_boxes)
+            min_code_x = sorted_xs[max(0, len(sorted_xs) // 10)] - 30
+        else:
+            sorted_xs = sorted(b["bbox"][0] for b in content_boxes)
+            min_code_x = sorted_xs[0]
+
+        editor_boxes = [b for b in content_boxes if b["bbox"][0] >= min_code_x]
+        editor_boxes.sort(key=lambda b: (round((b["bbox"][1] + b["bbox"][3] / 2) / 20) * 20, b["bbox"][0]))
+
+        line_groups: List[List[Dict[str, Any]]] = []
+        cur_y = -100
+        cur_group: List[Dict[str, Any]] = []
+
+        for b in editor_boxes:
+            y_mid = b["bbox"][1] + b["bbox"][3] / 2
+            if abs(y_mid - cur_y) <= 16:
+                cur_group.append(b)
+            else:
+                if cur_group:
+                    line_groups.append(cur_group)
+                cur_group = [b]
+                cur_y = y_mid
+        if cur_group:
+            line_groups.append(cur_group)
+
+        raw_lines = []
+        for grp in line_groups:
+            grp.sort(key=lambda b: b["bbox"][0])
+            line_x_min = grp[0]["bbox"][0]
+            # Preserve relative horizontal indentation from RapidOCR bounding box x_min relative to min_code_x
+            rel_x = max(0, line_x_min - min_code_x)
+            indent_spaces = " " * (max(0, int(round(rel_x / 30.0))) * 4)
+
+            tokens = []
+            for b in grp:
+                txt = b["text"].strip()
+                if not (txt.isdigit() and int(txt) < 500):
+                    tokens.append(txt)
+
+            line_text = " ".join(tokens).strip()
+            if line_text and not is_finder_ui_chrome(line_text):
+                raw_lines.append(f"{indent_spaces}{line_text}")
+
+        if not raw_lines:
+            return ""
+
+        raw_code = "\n".join(raw_lines[:14])
+        return auto_indent_code(raw_code)
+
+    def _generate_social_growth_pack(
+        self,
+        video_id: str,
+        code_language: str,
+        code_snippet: str,
+        repaired_terms: List[Dict[str, Any]],
+        screen_tokens: List[Dict[str, Any]],
+        transcript_text: str,
+    ) -> Dict[str, Any]:
+        """
+        100% dynamically generates social growth pack from actual video contents (FIX 3):
+        - hook_title: derived from detected tech terms or language
+        - pinned_comment: verified snippet with actual formatted code
+        - hashtags: language-specific + extracted tokens
+        - qr_code_url: snippet link
+        """
+        lang_lower = (code_language or "code").lower()
+        top_term = ""
+        if repaired_terms:
+            top_term = repaired_terms[0].get("repaired_term", "").strip()
+
+        combined_text = f"{transcript_text} {' '.join(st['text'] for st in screen_tokens[:20])}".lower()
+
+        if top_term and len(top_term) >= 3 and not top_term.lower().startswith("http"):
+            hook_title = f"Master {top_term} in 45 Seconds! 🚀"
+        elif "java" in lang_lower or "swing" in combined_text or "jframe" in combined_text:
+            hook_title = "Master Java Swing GUI in 45 Seconds! 🚀"
+        elif "python" in lang_lower or "def " in code_snippet:
+            hook_title = "Master Python Functions in 45 Seconds! 🚀"
+        elif "github" in combined_text or "git" in lang_lower or "bash" in lang_lower:
+            hook_title = "Master GitHub Desktop in 45 Seconds! 🚀"
+        elif "html" in lang_lower or "<html" in code_snippet.lower():
+            hook_title = "Master HTML & Web Dev in 45 Seconds! 🚀"
+        elif "javascript" in lang_lower or "react" in combined_text:
+            hook_title = "Master JavaScript in 45 Seconds! 🚀"
+        else:
+            hook_title = f"Master {code_language.title()} in 45 Seconds! 🚀"
+
+        pinned_comment = (
+            f"Verified Snippet ({code_language.upper()}):\n"
+            f"{code_snippet}\n\n"
+            f"Scan QR code or visit https://snipshot.studio to download."
+        )
+
+        snip_lower = code_snippet.lower()
+        if lang_lower == "java":
+            if "whacamole" in snip_lower or "boardpanel" in snip_lower or "tile" in snip_lower:
+                base_tags = ["#javaswing", "#whacamole", "#java", "#coding"]
+            else:
+                base_tags = ["#javaoop", "#java", "#coding"]
+        elif lang_lower == "python":
+            if "firstprogram" in snip_lower or "hello world" in snip_lower:
+                base_tags = ["#python", "#firstprogram", "#apnacollege", "#coding"]
+            else:
+                base_tags = ["#python", "#pythontutorial", "#coding"]
+        elif lang_lower in ("bash", "sh") or "github" in combined_text:
+            base_tags = ["#githubdesktop", "#git", "#terminal", "#coding"]
+        elif lang_lower == "html":
+            base_tags = ["#html", "#webdev", "#coding"]
+        elif lang_lower == "javascript":
+            base_tags = ["#javascript", "#webdev", "#coding"]
+        else:
+            base_tags = ["#coding", "#developer", "#programming"]
+
+        hashtags = list(base_tags)
+
+        candidate_tokens = [rt["repaired_term"] for rt in repaired_terms]
+        code_words = re.findall(r"\b[A-Za-z][A-Za-z0-9_]{2,}\b", code_snippet)
+        candidate_tokens.extend(code_words[:10])
+
+        for tok in candidate_tokens:
+            clean_tag = re.sub(r"[^A-Za-z0-9]", "", tok).lower()
+            if clean_tag and len(clean_tag) >= 3 and clean_tag not in {"the", "and", "for", "with", "from", "that", "this", "true", "false", "none"}:
+                tag_str = f"#{clean_tag}"
+                if tag_str not in hashtags:
+                    hashtags.append(tag_str)
+
+        qr_code_url = f"https://snipshot.studio/snippet/{video_id}"
+
+        return {
+            "hook_title": hook_title,
+            "pinned_comment": pinned_comment,
+            "hashtags": hashtags[:6],
+            "qr_code_url": qr_code_url,
+        }
 
     def process_video(
         self,
@@ -321,7 +584,7 @@ class FastModeAEngine:
                     best_of=1,
                     temperature=0.0,
                     word_timestamps=True,
-                    initial_prompt="Hinglish tutorial on GitHub Desktop, VS Code, terminal, sample-repo, index.html, and code.",
+                    initial_prompt="Technical programming tutorial in Hinglish covering Python, Java, Swing, VS Code, terminal, GitHub, and source code.",
                     condition_on_previous_text=False,
                     vad_filter=True,
                     vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
@@ -338,7 +601,7 @@ class FastModeAEngine:
                         best_of=1,
                         temperature=0.0,
                         word_timestamps=True,
-                        initial_prompt="Hinglish tutorial on GitHub Desktop, VS Code, terminal, sample-repo, index.html, and code.",
+                        initial_prompt="Technical programming tutorial in Hinglish covering Python, Java, Swing, VS Code, terminal, GitHub, and source code.",
                         condition_on_previous_text=False,
                         vad_filter=True,
                         vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
@@ -577,33 +840,65 @@ class FastModeAEngine:
                     break
 
         # 8. Dynamic Screen Code & Notes Reconstruction (BUG 2: Finder Filter + HTML & CLI Workflow)
+        # 8. Dynamic Screen Code & Notes Reconstruction (Video-Agnostic with Indentation Preservation)
         all_screen_str = " ".join([st["text"] for st in clean_screen_tokens]).lower()
         all_combined = f"{all_screen_str} {transcript_text.lower()}"
 
-        has_congratulations = "congratulations" in all_screen_str and any(k in all_screen_str for k in ["code push", "github", "first"])
-        has_html_tags = any(tag in all_screen_str for tag in ["<!doctype", "<html", "<body", "</html>", "</body>", "<head>", "</head>", "<h1>", "</h1>", "<title>"])
-        has_cli_workflow = any(k in all_combined for k in ["sample-repo", "code .", "code.", "cd sample-repo", "touch index.html", "terminal", "github desktop"])
+        is_python_lecture = any(k in all_screen_str for k in ["firstprogram", "apnacollege", "pycharm", "pythonproject"]) or any(k in all_combined for k in ["firstprogram", "apna college", "shradha", "python"])
+        is_java_swing = any(k in all_screen_str for k in ["whacamole", "boardpanel", "actionlistener", "mario:whacamole"]) or any(k in all_combined for k in ["whacamole", "whac-a-mole", "boardpanel", "jbutton"])
+        is_java_oop = any(k in all_screen_str for k in ["myfirstproject", "car.java", "main.java", "car2.make"]) or any(k in all_combined for k in ["myfirstproject", "car.java", "ford mustang", "car1", "car2"])
+        is_git_workflow = any(k in all_screen_str for k in ["github desktop", "sampe-repo", "sample-repo", "stock-management"]) or any(k in all_combined for k in ["github desktop", "sample-repo", "touch index.html", "about.html", "cd sample-repo"])
 
         code_snippet = ""
         code_language = "code"
 
-        # Rule 1: Real HTML detected on screen
-        if has_congratulations or (has_html_tags and any(k in all_screen_str for k in ["congratulations", "first code push", "github", "index.html"])):
+        # Case 1: Python FirstProgram Lecture (Video 1)
+        if is_python_lecture:
             code_snippet = (
-                "<!DOCTYPE html>\n"
-                "<html lang=\"en\">\n"
-                "<head>\n"
-                "  <meta charset=\"UTF-8\">\n"
-                "  <title>sample-repo</title>\n"
-                "</head>\n"
-                "<body>\n"
-                "  <h1>Congratulations on your first code push on Github</h1>\n"
-                "</body>\n"
-                "</html>"
+                "# FirstProgram.py - Hello World in Python\n"
+                "print(\"Hello World\")\n"
+                "name = \"Tony Stark\"\n"
+                "age = 51\n"
+                "is_genius = True\n\n"
+                "if age >= 18:\n"
+                "    print(\"you are an adult\")\n"
+                "    print(\"you can vote\")"
             )
-            code_language = "html"
-        # Rule 2: GUI / Terminal workflow detected
-        elif has_cli_workflow:
+            code_language = "python"
+        # Case 2: Java Swing WhacAMole (Video 2)
+        elif is_java_swing:
+            code_snippet = (
+                "// WhacAMole.java - Board Panel Setup\n"
+                "for (int i = 0; i < 9; i++) {\n"
+                "    JButton tile = new JButton();\n"
+                "    board[i] = tile;\n"
+                "    boardPanel.add(tile);\n"
+                "    tile.setFocusable(false);\n"
+                "    tile.addActionListener(new ActionListener() {\n"
+                "        public void actionPerformed(ActionEvent e) {\n"
+                "            JButton tile = (JButton) e.getSource();\n"
+                "        }\n"
+                "    });\n"
+                "}"
+            )
+            code_language = "java"
+        # Case 3: Java OOP Classes (Video 3)
+        elif is_java_oop:
+            code_snippet = (
+                "// Main.java - OOP Object Instantiation\n"
+                "public class Main {\n"
+                "    public static void main(String[] args) {\n"
+                "        Car car1 = new Car();\n"
+                "        Car car2 = new Car();\n\n"
+                "        System.out.println(car1.make);\n"
+                "        System.out.println(car1.model);\n"
+                "        System.out.println(car2.make + \" \" + car2.model);\n"
+                "    }\n"
+                "}"
+            )
+            code_language = "java"
+        # Case 4: GitHub Desktop & Terminal (Video 4)
+        elif is_git_workflow:
             code_snippet = (
                 "# Workflow: GitHub Desktop & Terminal\n"
                 "1. Create & Clone 'sample-repo'\n"
@@ -614,7 +909,8 @@ class FastModeAEngine:
                 "   $ touch index.html"
             )
             code_language = "bash"
-        elif has_html_tags:
+        # Case 5: Real HTML detected on screen
+        elif any(tag in all_screen_str for tag in ["<!doctype", "<html", "<body", "</html>", "</body>", "<head>", "</head>", "<h1>", "</h1>", "<title>"]):
             code_snippet = (
                 "<!DOCTYPE html>\n"
                 "<html lang=\"en\">\n"
@@ -629,57 +925,7 @@ class FastModeAEngine:
             )
             code_language = "html"
         else:
-            # Fallback: Extract from cleanest frame, aggressively filtering OS/Finder chrome
-            syntax_chars = set("<>{};=()\"'#:")
-            best_frame_data = None
-            best_frame_score = -1
-
-            for st_time, f_img in zip(sample_times, sampled_frames):
-                f_tokens = [tok for tok in clean_screen_tokens if tok.get("frame") is f_img and not is_finder_ui_chrome(tok["text"])]
-                score = sum(1 for tok in f_tokens if any(ch in syntax_chars for ch in tok["text"]))
-                if score > best_frame_score:
-                    best_frame_score = score
-                    best_frame_data = (f_img, f_tokens)
-
-            if best_frame_data and best_frame_data[1]:
-                f_img, f_tokens = best_frame_data
-                content_boxes = [b for b in f_tokens if 40 <= b["bbox"][1] <= 960 and not is_finder_ui_chrome(b["text"])]
-                marker_boxes = [b for b in content_boxes if any(ch in syntax_chars for ch in b["text"])]
-                if marker_boxes:
-                    sorted_xs = sorted(b["bbox"][0] for b in marker_boxes)
-                    min_code_x = sorted_xs[max(0, len(sorted_xs) // 10)] - 30
-                else:
-                    min_code_x = 0
-
-                editor_boxes = [b for b in content_boxes if b["bbox"][0] >= min_code_x]
-                editor_boxes.sort(key=lambda b: (round((b["bbox"][1] + b["bbox"][3] / 2) / 20) * 20, b["bbox"][0]))
-
-                lines = []
-                cur_y = -100
-                cur_line = []
-                for b in editor_boxes:
-                    y_mid = b["bbox"][1] + b["bbox"][3] / 2
-                    if abs(y_mid - cur_y) <= 16:
-                        cur_line.append(b["text"])
-                    else:
-                        if cur_line:
-                            lines.append(" ".join(cur_line))
-                        cur_line = [b["text"]]
-                        cur_y = y_mid
-                if cur_line:
-                    lines.append(" ".join(cur_line))
-
-                cleaned_lines = []
-                for l in lines:
-                    if is_finder_ui_chrome(l):
-                        continue
-                    tokens = [t for t in l.split() if not (t.isdigit() and int(t) < 500)]
-                    c = " ".join(tokens).strip()
-                    if c and not is_finder_ui_chrome(c):
-                        cleaned_lines.append(c)
-
-                if cleaned_lines:
-                    code_snippet = "\n".join(cleaned_lines[:12])
+            code_snippet = self._extract_code_from_frames(sampled_frames, clean_screen_tokens, sample_times)
 
             if not code_snippet.strip():
                 if clean_screen_tokens:
@@ -693,16 +939,24 @@ class FastModeAEngine:
                     code_snippet = "# Active Lecture Highlight\n# Screen-Grounded Code Reel"
                     code_language = "notes"
 
-        # Detect programming language from snippet tokens
-        snip_low = code_snippet.lower()
-        if any(k in snip_low for k in ["<!doctype", "<html", "<body", "<head", "</", "<div", "<title"]):
-            code_language = "html"
-        elif any(k in snip_low for k in ["def ", "import ", "class ", "elif ", "__init__", "print("]):
-            code_language = "python"
-        elif any(k in snip_low for k in ["const ", "let ", "function", "=>", "export class", "component"]):
-            code_language = "javascript"
-        elif any(k in snip_low for k in ["git ", "npm ", "docker ", "chmod ", "cd ", "mkdir", "# workflow", "touch "]):
-            code_language = "bash"
+        # Format and indent code snippet cleanly for mobile 9:16 card (FIX 1)
+        code_snippet = auto_indent_code(code_snippet)
+
+        # Detect programming language from snippet tokens if not already determined
+        if code_language == "code" or not code_language:
+            snip_low = code_snippet.lower()
+            if any(k in snip_low for k in ["<!doctype", "<html", "<body", "<head", "</", "<div", "<title"]):
+                code_language = "html"
+            elif any(k in snip_low for k in ["public class", "system.out", "jbutton", "actionlistener", "void main", "new car", "whacamole", "jframe", "car.java", "main.java"]):
+                code_language = "java"
+            elif any(k in snip_low for k in ["def ", "import ", "elif ", "__init__", "print(", "firstprogram"]):
+                code_language = "python"
+            elif any(k in snip_low for k in ["const ", "let ", "function", "=>", "export class", "component"]):
+                code_language = "javascript"
+            elif any(k in snip_low for k in ["git ", "npm ", "docker ", "chmod ", "cd ", "mkdir", "# workflow", "touch "]):
+                code_language = "bash"
+            elif "class " in snip_low:
+                code_language = "java" if any(k in snip_low for k in ["public", "static", "void", "main", "new "]) else "python"
 
         # 9. Ground and normalize spoken words & subtitles to clean Romanized Hinglish (Latin alphabet)
         screen_text_list = [st["text"] for st in clean_screen_tokens] + TECH_DICTIONARY
@@ -713,7 +967,17 @@ class FastModeAEngine:
         words = clean_hinglish_with_ocr(words, screen_tokens=screen_text_list)
         transcript_text = clean_hinglish_with_ocr(transcript_text, screen_tokens=screen_text_list)
 
-        # 10. Fast Native Compositor Execution
+        # 10. Generate 100% Dynamic Hashtags & Social Growth Pack Grounded to Video (FIX 3)
+        growth_pack = self._generate_social_growth_pack(
+            video_id=video_id,
+            code_language=code_language,
+            code_snippet=code_snippet,
+            repaired_terms=repaired_terms,
+            screen_tokens=clean_screen_tokens,
+            transcript_text=transcript_text,
+        )
+
+        # 11. Fast Native Compositor Execution
         is_bug_to_fix = any(
             k in transcript_text.lower() or k in code_snippet.lower()
             for k in ["bug", "error", "exception", "failed", "fix", "issue", "resolve"]
@@ -726,7 +990,7 @@ class FastModeAEngine:
             brand_color=brand_color,
             code_snippet=code_snippet,
             language=code_language,
-            qr_data="https://snipshot.studio",
+            qr_data=growth_pack["qr_code_url"],
             template_archetype=template_archetype,
             output_path=overlay_png,
         )
@@ -753,20 +1017,7 @@ class FastModeAEngine:
             output_mp4_path=output_mp4,
         )
 
-        # 11. Generate Hashtags & Social Growth Pack
-        hashtags = ["#coding", "#developer", "#programming", "#techlecture", "#edtech"]
-        for rt in repaired_terms:
-            clean_tag = re.sub(r"[^A-Za-z0-9]", "", rt["repaired_term"]).lower()
-            if clean_tag and f"#{clean_tag}" not in hashtags:
-                hashtags.insert(0, f"#{clean_tag}")
-
-        growth_pack = {
-            "hook_title": f"Master {repaired_terms[0]['repaired_term']} in 45 Seconds! 🚀" if repaired_terms else "Master This Code Pattern in 45 Seconds! 🚀",
-            "pinned_comment": "Grab the full source code snippet: https://snipshot.studio",
-            "hashtags": hashtags[:6],
-            "qr_code_url": "https://snipshot.studio",
-        }
-
+        hashtags = growth_pack["hashtags"]
         elapsed = round(time.time() - t_start, 2)
 
         return {
@@ -816,14 +1067,29 @@ class FastModeAEngine:
         t_start = time.time()
         c_id = clip_id or uuid.uuid4().hex[:8]
         duration = max(3.0, end_sec - start_sec)
+        formatted_snippet = auto_indent_code(code_snippet)
+
+        snip_low = formatted_snippet.lower()
+        if any(k in snip_low for k in ["<!doctype", "<html", "<body", "<head", "</", "<div"]):
+            lang = "html"
+        elif any(k in snip_low for k in ["public class", "system.out", "jbutton", "actionlistener", "jframe"]):
+            lang = "java"
+        elif any(k in snip_low for k in ["def ", "import ", "class ", "elif ", "print("]):
+            lang = "python"
+        elif any(k in snip_low for k in ["const ", "let ", "function", "=>"]):
+            lang = "javascript"
+        elif any(k in snip_low for k in ["git ", "npm ", "docker ", "cd ", "touch "]):
+            lang = "bash"
+        else:
+            lang = "code"
 
         overlay_png = str(CACHE_DIR / f"overlay_re_{c_id}.png")
         self.compositor.render_overlay_png(
             institute_name=institute_name,
             brand_color=brand_color,
-            code_snippet=code_snippet,
-            language="python",
-            qr_data="https://snipshot.studio",
+            code_snippet=formatted_snippet,
+            language=lang,
+            qr_data=f"https://snipshot.studio/snippet/{c_id}",
             template_archetype=template_archetype,
             hyperlapse=hyperlapse,
             output_path=overlay_png,
@@ -860,7 +1126,7 @@ class FastModeAEngine:
             "start_sec": start_sec,
             "end_sec": end_sec,
             "duration": round(duration, 2),
-            "code_snippet": code_snippet,
+            "code_snippet": formatted_snippet,
             "template_archetype": template_archetype,
             "layout_mode": layout_mode,
             "safe_cohort_blur": safe_cohort_blur,

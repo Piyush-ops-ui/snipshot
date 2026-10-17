@@ -605,7 +605,7 @@ class ModeAPipeline:
             return "\n".join(code_lines[:6])
 
         # Clean fallback snippet
-        return "const [data, setData] = useState([]);\nuseEffect(() => {\n  fetchData();\n}, []);"
+        return "# Highlight Code Snippet\n# Screen-Grounded Snippet"
 
     def _generate_hashtags_for_span(self, words: List[WordAlignment]) -> List[str]:
         """Generates engaging social hashtags from detected technical vocabulary."""

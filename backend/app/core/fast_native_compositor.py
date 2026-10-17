@@ -11,6 +11,7 @@ Renders 1080x1920 9:16 vertical Reels in 2 to 4 seconds:
 """
 
 import os
+import re
 import sys
 import time
 import subprocess
@@ -25,6 +26,49 @@ OUTPUTS_DIR = ROOT_DIR / "backend" / "outputs"
 CACHE_DIR = ROOT_DIR / "data" / "cache"
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def sanitize_for_render(text: str) -> str:
+    """
+    Eliminates all unrenderable characters and '□' square glyphs (FIX 2):
+    - Replace \\t with 4 spaces
+    - Replace smart quotes with ASCII quotes
+    - Replace dashes with ASCII hyphen
+    - Replace Unicode emojis with clean ASCII tags
+    - Strip any character outside printable ASCII (\\x20-\\x7E and \\n)
+    """
+    if text is None:
+        return ""
+    text = str(text)
+    # 1. Expand tabs and remove carriage returns/zero-width spaces
+    text = text.replace("\t", "    ").replace("\r", "").replace("\u00a0", " ").replace("\u200b", "")
+    # 2. Smart quotes & typographical dashes
+    text = text.replace("“", '"').replace("”", '"')
+    text = text.replace("‘", "'").replace("’", "'")
+    text = text.replace("«", '"').replace("»", '"')
+    text = text.replace("—", "-").replace("–", "-").replace("−", "-")
+    text = text.replace("•", "-").replace("…", "...")
+    # 3. Unicode emojis to clean ASCII tags
+    emoji_tags = {
+        "⚡": "[2.5x]",
+        "✅": "[VERIFIED]",
+        "❌": "[ERROR]",
+        "🔥": "[HOT]",
+        "🚨": "[BUG]",
+        "⏸️": "[PAUSE]",
+        "⏸": "[PAUSE]",
+        "🛑": "[STOP]",
+        "🚀": "[PROD]",
+        "口": " ",
+        "红": " ",
+        "💡": "[TIP]",
+        "⚠️": "[WARN]",
+    }
+    for emoji, tag in emoji_tags.items():
+        text = text.replace(emoji, tag)
+    # 4. Strip any character outside printable ASCII (\\x20-\\x7E and \\n)
+    text = re.sub(r"[^\x20-\x7E\n]", "", text)
+    return text
 
 
 def get_monospace_font(size: int = 24, bold: bool = False) -> ImageFont.ImageFont:
@@ -114,47 +158,48 @@ class FastNativeCompositor:
             header_line = (16, 185, 129, 255)     # Emerald Green #10B981
             badge_border = (16, 185, 129, 255)   # Emerald Green #10B981
             badge_fill = (6, 78, 59, 255)         # Dark Emerald
-            badge_text = "🚨 BUG RESOLVED [200 OK]"
+            badge_text = "[BUG] BUG RESOLVED [200 OK]"
             badge_color = (16, 185, 129, 255)    # Emerald Green #10B981
-            subtitle_text = "SNIPSHOT 9:16 • BUG RESOLUTION REEL"
+            subtitle_text = "SNIPSHOT 9:16 - BUG RESOLUTION REEL"
         elif "vs_battle" in arch or "vs" in arch:
             header_bg = (59, 7, 100, 255)         # Deep Violet #3B0764
             header_line = (192, 132, 252, 255)    # Violet Accent #C084FC
             badge_border = (192, 132, 252, 255)
             badge_fill = (46, 16, 101, 255)
-            badge_text = "⚡ VS BATTLE • ARCHITECTURE COMPASS"
+            badge_text = "[VS] VS BATTLE - ARCHITECTURE COMPASS"
             badge_color = (245, 208, 254, 255)
-            subtitle_text = "SNIPSHOT 9:16 • ARCHITECTURE COMPASS"
+            subtitle_text = "SNIPSHOT 9:16 - ARCHITECTURE COMPASS"
         elif "predict_output" in arch or "predict" in arch:
             header_bg = (120, 53, 15, 255)        # Dark Amber #78350F
             header_line = (245, 158, 11, 255)     # Amber Yellow #F59E0B
             badge_border = (245, 158, 11, 255)    # Amber Yellow #F59E0B
             badge_fill = (69, 26, 3, 255)
-            badge_text = "⏸️ PAUSE & PREDICT OUTPUT"
+            badge_text = "[PAUSE] PAUSE & PREDICT OUTPUT"
             badge_color = (251, 191, 36, 255)     # Amber Yellow #FBBF24
-            subtitle_text = "SNIPSHOT 9:16 • ACTIVE RETRIEVAL CHALLENGE"
+            subtitle_text = "SNIPSHOT 9:16 - ACTIVE RETRIEVAL CHALLENGE"
         else:  # standard_spotlight
             header_bg = (15, 23, 42, 255)        # Deep slate #0F172A
             header_line = brand_rgb + (255,)
             badge_border = (56, 189, 248, 255)
             badge_fill = (30, 41, 59, 255)
-            badge_text = "VERIFIED CONTENT"
+            badge_text = "[VERIFIED] VERIFIED CONTENT"
             badge_color = (56, 189, 248, 255)
-            subtitle_text = "SNIPSHOT 9:16 • SCREEN-GROUNDED CODE REEL"
+            subtitle_text = "SNIPSHOT 9:16 - SCREEN-GROUNDED CODE REEL"
 
         draw.rectangle([(0, 0), (self.WIDTH, self.HEADER_H)], fill=header_bg)
         draw.line([(0, self.HEADER_H - 3), (self.WIDTH, self.HEADER_H - 3)], fill=header_line, width=3)
 
         # Logo / Shell icon capsule
         draw.rounded_rectangle([(32, 32), (96, 96)], radius=12, fill=(30, 41, 59, 255), outline=header_line, width=2)
-        draw.text((44, 46), ">_", fill=brand_rgb + (255,), font=self.title_font)
+        draw.text((44, 46), sanitize_for_render(">_"), fill=brand_rgb + (255,), font=self.title_font)
 
         # Institute Name & Subtitle
-        name_text = (institute_name or "SNIPSHOT ACADEMY").upper()
+        name_text = sanitize_for_render((institute_name or "SNIPSHOT ACADEMY").upper())
         draw.text((114, 40), name_text, fill=(255, 255, 255, 255), font=self.title_font)
-        draw.text((116, 78), subtitle_text, fill=(148, 163, 184, 255), font=self.badge_font)
+        draw.text((116, 78), sanitize_for_render(subtitle_text), fill=(148, 163, 184, 255), font=self.badge_font)
 
         # Verified Tag / Archetype Badge
+        badge_text = sanitize_for_render(badge_text)
         try:
             bbox = self.badge_font.getbbox(badge_text)
             tw = bbox[2] - bbox[0]
@@ -172,7 +217,7 @@ class FastNativeCompositor:
         # Weapon 9: Dead-Air Hyperlapse Badge HUD
         if hyperlapse:
             draw.rounded_rectangle([(self.WIDTH - 350, 105), (self.WIDTH - 40, 145)], radius=10, fill=(15, 23, 42, 255), outline=(0, 242, 254, 255), width=2)
-            draw.text((self.WIDTH - 330, 115), "⚡ 2.5x HYPERLAPSE", fill=(0, 242, 254, 255), font=self.badge_font)
+            draw.text((self.WIDTH - 330, 115), sanitize_for_render("[2.5x] HYPERLAPSE"), fill=(0, 242, 254, 255), font=self.badge_font)
 
         # 2. UPPER CODE SPOTLIGHT CARD (150 to 780px)
         card_x0, card_x1 = 28, self.WIDTH - 28
@@ -187,17 +232,15 @@ class FastNativeCompositor:
         draw.ellipse([(card_x0 + 16, card_y0 + 14), (card_x0 + 28, card_y0 + 26)], fill=(243, 139, 168, 255))
         draw.ellipse([(card_x0 + 36, card_y0 + 14), (card_x0 + 48, card_y0 + 26)], fill=(249, 226, 175, 255))
         draw.ellipse([(card_x0 + 56, card_y0 + 14), (card_x0 + 68, card_y0 + 26)], fill=(166, 227, 161, 255))
-        draw.text((card_x0 + 84, card_y0 + 12), f"code_spotlight.{language}", fill=(148, 163, 184, 255), font=self.badge_font)
+        draw.text((card_x0 + 84, card_y0 + 12), sanitize_for_render(f"code_spotlight.{language}"), fill=(148, 163, 184, 255), font=self.badge_font)
 
         # Code syntax lines (guaranteed monospace DejaVu font)
-        clean_snippet = code_snippet.strip() if code_snippet else "# Implementation Spotlight\nprint('Hello SnipShot')"
+        clean_snippet = sanitize_for_render(code_snippet.strip() if code_snippet else "# Implementation Spotlight\nprint('Hello SnipShot')")
         lines = clean_snippet.split("\n")[:14]
         line_y = card_y0 + 56
         for i, line in enumerate(lines):
-            # Line number
-            draw.text((card_x0 + 16, line_y), f"{i+1:2d}", fill=(100, 116, 139, 255), font=self.code_font)
-            # Syntax colorized tokens
-            self._draw_simple_syntax_line(draw, line, card_x0 + 64, line_y, brand_color)
+            # Syntax colorized tokens with line numbers on the left margin
+            self._draw_simple_syntax_line(draw, line, card_x0 + 64, line_y, brand_color, line_num=i + 1)
             line_y += 38
 
         # 3. MIDDLE REGION (790 to 1470px) IS LEFT TRANSPARENT (ALPHA = 0)!
@@ -218,11 +261,11 @@ class FastNativeCompositor:
             qr_img = qr.make_image(fill_color="#0F172A", back_color="#FFFFFF").convert("RGBA")
             qr_img = qr_img.resize((130, 130), Image.Resampling.NEAREST)
             img.paste(qr_img, (910, 1740))
-            draw.text((918, 1712), "SCAN CODE", fill=(255, 255, 255, 255), font=self.badge_font)
+            draw.text((918, 1712), sanitize_for_render("SCAN CODE"), fill=(255, 255, 255, 255), font=self.badge_font)
         except Exception:
             try:
                 draw.rectangle([(910, 1740), (1040, 1870)], fill=(255, 255, 255, 255), outline=(56, 189, 248, 255), width=2)
-                draw.text((918, 1712), "SCAN CODE", fill=(255, 255, 255, 255), font=self.badge_font)
+                draw.text((918, 1712), sanitize_for_render("SCAN CODE"), fill=(255, 255, 255, 255), font=self.badge_font)
             except Exception:
                 pass
 
@@ -243,6 +286,7 @@ class FastNativeCompositor:
         - Covers timestamps from 0.0s all the way to duration
         - Guarantees zero overlapping and no lines frozen on screen
         - Uses font DejaVu Sans with bold weight and outline
+        - Strictly sanitized for render to eliminate any '□' unicode tofu
         """
         if not output_path:
             output_path = str(CACHE_DIR / f"subs_{int(time.time() * 1000)}.ass")
@@ -255,7 +299,7 @@ class FastNativeCompositor:
             w_end = float(w.get("end", 0.0)) - start_sec
             if w_end < 0.0 or w_start > duration:
                 continue
-            word_str = str(w.get("word", "")).strip()
+            word_str = sanitize_for_render(str(w.get("word", "")).strip())
             if not word_str:
                 continue
 
@@ -265,6 +309,7 @@ class FastNativeCompositor:
                     from backend.app.core.hinglish_normalizer import strip_non_latin_indic_noise, transliterate_devanagari_word
                     word_str = strip_non_latin_indic_noise(word_str)
                     word_str = transliterate_devanagari_word(word_str)
+                    word_str = sanitize_for_render(word_str)
                 except Exception:
                     pass
 
@@ -278,7 +323,7 @@ class FastNativeCompositor:
                 continue
 
             clean_words.append({
-                "word": word_str,
+                "word": sanitize_for_render(word_str),
                 "start": max(0.0, min(duration, w_start)),
                 "end": max(w_start + 0.1, min(duration, w_end)),
             })
@@ -355,14 +400,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             start_str = self._format_ass_time(c_start)
             end_str = self._format_ass_time(c_end)
 
-            # Karaoke line with \kf timing tags (hundredths of a second)
+            # Karaoke line with \\kf timing tags (hundredths of a second)
             karaoke_text = ""
             for item in chunk:
                 item_dur = max(0.1, min(1.0, item["end"] - item["start"]))
                 dur_cs = max(5, int(item_dur * 100))
-                karaoke_text += f"{{\\kf{dur_cs}}}{item['word']} "
+                clean_item_word = sanitize_for_render(item['word'])
+                karaoke_text += f"{{\\kf{dur_cs}}}{clean_item_word} "
 
-            ass_content += f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{karaoke_text.strip()}\n"
+            clean_dialogue = sanitize_for_render(karaoke_text.strip())
+            ass_content += f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{clean_dialogue}\n"
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(ass_content)
@@ -397,21 +444,52 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         - Burns .ass word karaoke subtitles.
         - Encodes via ultrafast libx264 in 2 to 4 seconds.
         """
-        crop_w = 1370
-        crop_h = 862
-        cx = max(0, min(1920 - crop_w, crop_x))
-        cy = max(0, min(1080 - crop_h, crop_y))
+        # Probe source resolution
+        source_w, source_h = 1920, 1080
+        try:
+            import cv2
+            cap = cv2.VideoCapture(str(source_video_path))
+            if cap.isOpened():
+                w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                if w > 0 and h > 0:
+                    source_w, source_h = w, h
+            cap.release()
+        except Exception:
+            try:
+                cmd_probe = [
+                    "ffprobe", "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=width,height",
+                    "-of", "csv=s=x:p=0",
+                    str(source_video_path),
+                ]
+                out_probe = subprocess.check_output(cmd_probe, stderr=subprocess.DEVNULL).decode().strip()
+                if "x" in out_probe:
+                    pw, ph = out_probe.split("x")[:2]
+                    source_w, source_h = int(pw), int(ph)
+            except Exception:
+                pass
+
+        # 1.35x Smart Active Zoom Crop
+        crop_w = int(source_w / 1.35)
+        crop_h = int(crop_w * self.VIDEO_H / self.WIDTH)
+        if crop_h > source_h:
+            crop_h = source_h
+            crop_w = int(crop_h * self.WIDTH / self.VIDEO_H)
+        cx = max(0, min(source_w - crop_w, int(crop_x * source_w / 1920.0) if crop_x > 0 else 0))
+        cy = max(0, min(source_h - crop_h, int(crop_y * source_h / 1080.0) if crop_y > 0 else 0))
 
         if safe_cohort_blur:
             middle_chain = (
-                f"[0:v]scale=1920:1080,crop={crop_w}:{crop_h}:{cx}:{cy},scale=1080:{self.VIDEO_H},"
+                f"[0:v]crop={crop_w}:{crop_h}:{cx}:{cy},scale={self.WIDTH}:{self.VIDEO_H},"
                 f"split[vraw][vblurin];"
                 f"[vblurin]crop=500:80:100:480,boxblur=15:5[vblurred];"
                 f"[vraw][vblurred]overlay=100:480,pad={self.WIDTH}:{self.HEIGHT}:0:{self.VIDEO_Y0}:black[vbase];"
             )
         else:
             middle_chain = (
-                f"[0:v]scale=1920:1080,crop={crop_w}:{crop_h}:{cx}:{cy},scale=1080:{self.VIDEO_H},"
+                f"[0:v]crop={crop_w}:{crop_h}:{cx}:{cy},scale={self.WIDTH}:{self.VIDEO_H},"
                 f"pad={self.WIDTH}:{self.HEIGHT}:0:{self.VIDEO_Y0}:black[vbase];"
             )
 
@@ -471,14 +549,51 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         return str(output_mp4_path)
 
-    def _draw_simple_syntax_line(self, draw, line: str, x: int, y: int, accent: str):
-        """Clean token coloring for code spotlight — supports Python, JS, HTML, Bash."""
-        keywords = {"def", "class", "import", "from", "return", "if", "else", "for", "while", "const", "let", "function", "async", "await", "export", "extends", "private", "public"}
+    def _draw_simple_syntax_line(
+        self,
+        draw: ImageDraw.ImageDraw,
+        line: str,
+        x: int,
+        y: int,
+        accent: str,
+        line_num: Optional[int] = None,
+    ):
+        """Clean token coloring for code spotlight — supports Python, Java, JS, HTML, Bash with full indentation."""
+        if line_num is not None:
+            # Draw line numbers 1, 2, 3... in muted slate on the left margin so it looks like a real VS Code editor
+            draw.text((x - 48, y), sanitize_for_render(f"{line_num:2d}"), fill=(100, 116, 139, 255), font=self.code_font)
+
+        line = sanitize_for_render(line)
+        if not line.strip():
+            return
+
+        # PRESERVE LEADING WHITESPACE! Measure leading spaces:
+        leading_spaces = len(line) - len(line.lstrip(" "))
+        # Start drawing tokens from x + leading_spaces * 14
+        cur_x = x + leading_spaces * 14
+        content = line.lstrip(" ")
+
+        # Comments
+        if content.startswith(("#", "//", "<!--")):
+            draw.text((cur_x, y), sanitize_for_render(content), fill=(100, 116, 139, 255), font=self.code_font)
+            return
+
+        keywords = {
+            "def", "class", "import", "from", "return", "if", "else", "elif", "for", "while",
+            "const", "let", "var", "function", "async", "await", "export", "extends", "implements",
+            "private", "public", "protected", "static", "final", "void", "int", "boolean", "double",
+            "float", "char", "String", "new", "this", "super", "null", "true", "false", "try",
+            "catch", "finally", "throw", "throws", "package", "interface", "break", "continue"
+        }
         html_tags = {"html", "head", "body", "meta", "title", "div", "span", "p", "h1", "h2", "h3", "a", "img", "script", "style", "link", "DOCTYPE"}
-        bash_cmds = {"git", "npm", "pip", "docker", "python", "node", "yarn", "cd", "mkdir", "echo", "curl", "wget"}
-        words = line.split(" ")
-        cur_x = x
+        bash_cmds = {"git", "npm", "pip", "docker", "python", "node", "yarn", "cd", "mkdir", "touch", "echo", "curl", "wget", "cat", "chmod"}
+
+        words = content.split(" ")
         for w in words:
+            if not w:
+                cur_x += 14
+                continue
+
             clean_w = w.strip("():,;{}\"'<>/!")
             if clean_w in keywords:
                 color = (244, 114, 182, 255)  # Pink keyword
@@ -490,7 +605,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 color = (250, 204, 21, 255)  # Yellow bash command
             elif w.startswith('"') or w.startswith("'") or clean_w.startswith('"') or clean_w.startswith("'"):
                 color = (166, 227, 161, 255)  # Green string
-            elif clean_w.startswith("@") or clean_w in {"useEffect", "useState", "Autowired", "commit", "push", "pull", "branch"}:
+            elif clean_w.startswith("@") or clean_w in {"commit", "push", "pull", "branch", "add", "clone", "status", "remote", "merge", "checkout"}:
                 color = self._hex_to_rgb(accent) + (255,)  # Brand accent
             elif clean_w.isdigit():
                 color = (250, 204, 21, 255)  # Yellow number
@@ -501,14 +616,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 eq_idx = w.index("=")
                 attr_name = w[:eq_idx]
                 attr_val = w[eq_idx:]
-                draw.text((cur_x, y), attr_name, fill=(250, 189, 47, 255), font=self.code_font)
+                draw.text((cur_x, y), sanitize_for_render(attr_name), fill=(250, 189, 47, 255), font=self.code_font)
                 cur_x += len(attr_name) * 14
-                draw.text((cur_x, y), attr_val + " ", fill=(166, 227, 161, 255), font=self.code_font)
+                draw.text((cur_x, y), sanitize_for_render(attr_val + " "), fill=(166, 227, 161, 255), font=self.code_font)
                 cur_x += len(attr_val + " ") * 14
                 continue
             else:
                 color = (241, 245, 249, 255)  # Crisp light slate
-            draw.text((cur_x, y), w + " ", fill=color, font=self.code_font)
+            draw.text((cur_x, y), sanitize_for_render(w + " "), fill=color, font=self.code_font)
             cur_x += len(w + " ") * 14
 
     def _hex_to_rgb(self, h: str) -> Tuple[int, int, int]:
