@@ -8,6 +8,7 @@ Generates 100% real animated 1080x1920 9:16 explainer videos from ANY topic prom
 """
 
 import os
+import sys
 import re
 import time
 import uuid
@@ -266,7 +267,34 @@ class FastModeBEngine:
         p_clean = prompt.strip()
         p_lower = p_clean.lower()
 
-        if "json" in p_lower and "xml" in p_lower:
+        if any(k in p_lower for k in ["hook", "react", "usestate", "useeffect", "usememo", "usecallback"]):
+            return [
+                {
+                    "title": "Scene 1: Why React Hooks?",
+                    "narration": "React hooks allow functional components to manage state and lifecycle without complex ES6 class syntax. Let us see how.",
+                    "code": '// Functional component with React hooks\nimport { useState, useEffect } from "react";\n\nexport function Counter() {\n  const [count, setCount] = useState(0);\n  return <button onClick={() => setCount(c => c + 1)}>{count}</button>;\n}',
+                    "language": "javascript",
+                },
+                {
+                    "title": "Scene 2: State with useState",
+                    "narration": "useState preserves values across render cycles. Every time state updates, React re-renders the component with fresh values.",
+                    "code": '// 1. Declare state variable and setter\nconst [query, setQuery] = useState("");\n\n// 2. State update triggers seamless re-render\nfunction handleSearch(term) {\n  setQuery(term.trim().toLowerCase());\n}',
+                    "language": "javascript",
+                },
+                {
+                    "title": "Scene 3: Side Effects with useEffect",
+                    "narration": "useEffect synchronizes with external APIs and event listeners. Always return a cleanup function to prevent memory leaks.",
+                    "code": '// Fetch data & cleanup on unmount\nuseEffect(() => {\n  const controller = new AbortController();\n  fetchData(query, { signal: controller.signal });\n  return () => controller.abort(); // Cleanup leak!\n}, [query]);',
+                    "language": "javascript",
+                },
+                {
+                    "title": "Scene 4: Rules of Hooks & Verdict",
+                    "narration": "Always call hooks at the top level of React functions, never inside loops or nested conditions. Clean, modular code.",
+                    "code": '// Rules of Hooks:\n// 1. Only call hooks at top level\n// 2. Only call hooks from React functions\n// Result: 100% predictable render tree!',
+                    "language": "javascript",
+                },
+            ]
+        elif "json" in p_lower and "xml" in p_lower:
             return [
                 {
                     "title": "Scene 1: The Bottleneck",
@@ -290,6 +318,60 @@ class FastModeBEngine:
                     "title": "Scene 4: The Verdict",
                     "narration": "JSON wins on mobile bandwidth, API latency, and developer ergonomics. Keep your data lean.",
                     "code": '// Summary:\n// Payload: 48% Smaller\n// Parse Time: 6x Faster\n// Winner: JSON',
+                    "language": "javascript",
+                },
+            ]
+        elif any(k in p_lower for k in ["git", "merge", "rebase"]):
+            return [
+                {
+                    "title": "Scene 1: The Branching Split",
+                    "narration": "What is the real difference between Git merge and Git rebase? Both integrate branches, but with completely different histories.",
+                    "code": '# Git Merge vs Git Rebase:\n# Merge: Preserves branch commits and adds merge commit\n# Rebase: Re-applies commits linearly on tip',
+                    "language": "bash",
+                },
+                {
+                    "title": "Scene 2: Git Merge Preserves History",
+                    "narration": "Merge creates an explicit merge commit, preserving the exact chronological timeline of every branch.",
+                    "code": '$ git checkout main\n$ git merge feature-login\n# Creates merge commit: "Merge branch feature-login"',
+                    "language": "bash",
+                },
+                {
+                    "title": "Scene 3: Linear History with Rebase",
+                    "narration": "Rebase rewrites commit history by moving your feature commits onto the tip of main in a clean straight line.",
+                    "code": '$ git checkout feature-login\n$ git rebase main\n# Re-applies commits 1 by 1 on top of latest main',
+                    "language": "bash",
+                },
+                {
+                    "title": "Scene 4: Team Best Practice",
+                    "narration": "Rebase local branches before creating pull requests for a clean git log. Never rebase shared public branches.",
+                    "code": '# Best Practice:\n# Local feature branch -> Rebase\n# Public shared branch -> Merge',
+                    "language": "bash",
+                },
+            ]
+        elif any(k in p_lower for k in ["sql", "nosql", "postgres", "mongo", "database"]):
+            return [
+                {
+                    "title": "Scene 1: Relational vs Document",
+                    "narration": "SQL uses structured tables with rigid schemas. NoSQL stores flexible JSON-like documents that adapt as requirements evolve.",
+                    "code": '-- SQL Table Definition\nCREATE TABLE users (\n  id SERIAL PRIMARY KEY,\n  email VARCHAR(255) UNIQUE NOT NULL\n);',
+                    "language": "sql",
+                },
+                {
+                    "title": "Scene 2: ACID Transactions in SQL",
+                    "narration": "Relational databases guarantee ACID transactions, ensuring complete data consistency for banking and financial operations.",
+                    "code": '-- SQL Atomic Transaction\nBEGIN;\nUPDATE accounts SET balance = balance - 100 WHERE id = 1;\nUPDATE accounts SET balance = balance + 100 WHERE id = 2;\nCOMMIT;',
+                    "language": "sql",
+                },
+                {
+                    "title": "Scene 3: Horizontal Scalability in NoSQL",
+                    "narration": "NoSQL distributes data across clusters with automatic sharding, handling massive write volume and petabyte-scale datasets easily.",
+                    "code": '// MongoDB Document Insertion\ndb.users.insertOne({\n  email: "alex@snipshot.studio",\n  preferences: { theme: "dark", notifications: true }\n});',
+                    "language": "javascript",
+                },
+                {
+                    "title": "Scene 4: Architectural Verdict",
+                    "narration": "Choose SQL when data relationships and strict schema integrity matter. Choose NoSQL for rapid iterations and high throughput.",
+                    "code": '// Architecture Compass:\n// Financial / ERP / Relational -> PostgreSQL\n// Event stream / Catalogs -> MongoDB',
                     "language": "javascript",
                 },
             ]
@@ -321,33 +403,41 @@ class FastModeBEngine:
                 },
             ]
         else:
-            # Universal generator for any arbitrary topic
+            # Universal topic-aware generator
             tokens = re.findall(r"[A-Za-z0-9_]+", p_clean)
-            title_topic = " ".join(tokens[:4]) if tokens else "Modern Engineering"
+            title_topic = " ".join(tokens[:4]) if tokens else "Software Architecture"
+            lang = "python"
+            if any(k in p_lower for k in ["html", "css", "js", "ts", "javascript", "typescript", "frontend", "web", "vue", "angular"]):
+                lang = "javascript"
+            elif any(k in p_lower for k in ["java", "spring", "jvm", "kotlin"]):
+                lang = "java"
+            elif any(k in p_lower for k in ["c++", "cpp", "c#", "rust", "golang", "go"]):
+                lang = "cpp"
+
             return [
                 {
                     "title": f"Scene 1: Understanding {title_topic}",
-                    "narration": f"In this breakdown, we examine the fundamental architecture and real-world execution of {p_clean}.",
-                    "code": f"# Core Concept: {title_topic}\nimport sys\nimport time\n\nprint('Initializing {title_topic}...')",
-                    "language": "python",
+                    "narration": f"In this breakdown, we examine the fundamental architecture and core execution model of {p_clean}.",
+                    "code": f"// Core Concept: {title_topic}\nconsole.log('Mastering {title_topic} in 45 seconds');" if lang == "javascript" else f"# Core Concept: {title_topic}\nprint('Mastering {title_topic} in 45 seconds')",
+                    "language": lang,
                 },
                 {
-                    "title": "Scene 2: Implementation Mechanics",
-                    "narration": "Notice how the core abstraction encapsulates state and isolates execution side effects cleanly.",
-                    "code": f"class {tokens[0] if tokens else 'Engine'}:\n    def __init__(self, config: dict):\n        self.config = config\n        self.ready = True\n\n    def process(self, event):\n        return self.ready and event is not None",
-                    "language": "python",
+                    "title": "Scene 2: Practical Implementation",
+                    "narration": "Notice how the core abstraction encapsulates state and ensures predictable behavior during execution.",
+                    "code": f"export function executeConcept(input) {{\n  return input ? process(input) : null;\n}}" if lang == "javascript" else f"def execute_concept(input_val):\n    return process(input_val) if input_val else None",
+                    "language": lang,
                 },
                 {
-                    "title": "Scene 3: Production Optimization",
-                    "narration": "By minimizing memory allocations and avoiding blocking I/O, latency remains under five milliseconds.",
-                    "code": f"@profile_latency\nasync def handle_request(payload: dict):\n    # Zero-copy async pipeline\n    async with connection_pool.acquire() as conn:\n        return await conn.execute(payload)",
-                    "language": "python",
+                    "title": "Scene 3: Production Best Practice",
+                    "narration": "Clean encapsulation and automated error boundaries prevent regressions and guarantee high reliability.",
+                    "code": f"try {{\n  const result = executeConcept(data);\n}} catch (err) {{\n  handleGracefully(err);\n}}" if lang == "javascript" else f"try:\n    result = execute_concept(data)\nexcept Exception as err:\n    handle_gracefully(err)",
+                    "language": lang,
                 },
                 {
                     "title": "Scene 4: Key Takeaway",
-                    "narration": "Mastering this pattern ensures your services scale reliably under high concurrency. Always benchmark early.",
-                    "code": f"# Production Status: VERIFIED\n# Concurrency: 10,000 req/sec\n# Error Rate: 0.00%\n# Outcome: Highly Scalable",
-                    "language": "python",
+                    "narration": "Mastering this pattern ensures your codebase remains scalable, testable, and production-ready. Keep building.",
+                    "code": f"// Status: VERIFIED\n// Pattern: {title_topic}\n// Result: Scalable & Production-Ready" if lang == "javascript" else f"# Status: VERIFIED\n# Pattern: {title_topic}\n# Result: Scalable & Production-Ready",
+                    "language": lang,
                 },
             ]
 
@@ -376,6 +466,7 @@ class FastModeBEngine:
                 "--write-media", mp3_path,
             ]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25)
+            print(f"[MODE_B_TTS] edge_tts code={res.returncode}, mp3_exists={os.path.exists(mp3_path)}, err={res.stderr.decode('utf-8', errors='ignore')[:200]}")
             if res.returncode == 0 and os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 1000:
                 subprocess.run(
                     ["ffmpeg", "-y", "-i", mp3_path, "-ar", "16000", "-ac", "1", wav_path],
@@ -383,8 +474,9 @@ class FastModeBEngine:
                 )
                 if os.path.exists(wav_path) and os.path.getsize(wav_path) > 2000:
                     audio_created = True
-        except Exception:
-            pass
+                    print(f"[MODE_B_TTS] edge_tts SUCCESS! wav_size={os.path.getsize(wav_path)}")
+        except Exception as e:
+            print(f"[MODE_B_TTS] edge_tts EXCEPTION: {e}")
 
         # 2. Offline Fallback: pyttsx3 Local Speech Synthesis
         if not audio_created:
@@ -394,10 +486,12 @@ class FastModeBEngine:
                 engine.setProperty('rate', 160)
                 engine.save_to_file(full_text, wav_path)
                 engine.runAndWait()
-                if os.path.exists(wav_path) and os.path.getsize(wav_path) > 2000:
+                wav_sz = os.path.getsize(wav_path) if os.path.exists(wav_path) else 0
+                print(f"[MODE_B_TTS] pyttsx3 done, wav_exists={os.path.exists(wav_path)}, size={wav_sz}")
+                if os.path.exists(wav_path) and wav_sz > 2000:
                     audio_created = True
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[MODE_B_TTS] pyttsx3 EXCEPTION: {e}")
 
         # 3. Emergency fallback: generate tone if system audio drivers completely missing
         if not audio_created or not os.path.exists(wav_path) or os.path.getsize(wav_path) < 1000:

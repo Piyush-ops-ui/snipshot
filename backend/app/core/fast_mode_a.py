@@ -13,6 +13,7 @@ import subprocess
 import textwrap
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
+import wave
 
 import numpy as np
 import cv2
@@ -569,6 +570,7 @@ class FastModeAEngine:
         institute_name: str = "SNIPSHOT ACADEMY",
         brand_color: str = "#4F46E5",
         target_clip_duration: float = 45.0,
+        brand_kit: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Executes complete video-agnostic Mode A pipeline in < 35 seconds:
@@ -582,6 +584,9 @@ class FastModeAEngine:
         8. FastNativeCompositor renders single overlay PNG, ASS subtitles, and encodes 9:16 MP4 via native FFmpeg.
         """
         t_start = time.time()
+        if brand_kit:
+            institute_name = brand_kit.get("name", institute_name)
+            brand_color = brand_kit.get("primary_color", brand_color)
         video_id = uuid.uuid4().hex[:8]
         total_duration = probe_video_duration(video_path)
 
@@ -1084,7 +1089,6 @@ class FastModeAEngine:
 
         # Dynamic Telemetry Scores computed from actual audio RMS and video tokens
         try:
-            import wave, numpy as np
             with wave.open(temp_wav, "r") as wf:
                 frames = wf.readframes(min(wf.getnframes(), int(wf.getframerate() * max(1.0, clip_duration))))
                 samples = np.frombuffer(frames, dtype=np.int16).astype(float)
